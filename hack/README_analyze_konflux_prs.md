@@ -9,6 +9,12 @@ This script fetches all open pull requests opened by `app/red-hat-konflux` in th
 - Cursor Agent (`cursor-agent`) installed and authenticated
 - Access to the openshift/sandboxed-containers-operator repository
 
+## Files
+
+- `analyze_konflux_prs.py` - Main script
+- `analysis_prompt_template.txt` - Template file for the analysis prompt
+- `README_analyze_konflux_prs.md` - This documentation
+
 ## Usage
 
 ```bash
@@ -66,3 +72,13 @@ cursor-agent login
 ```
 
 The script will work seamlessly once both GitHub CLI and cursor-agent are properly authenticated.
+
+## Customizing the Analysis Prompt
+
+You can modify the analysis prompt by editing `hack/analysis_prompt_template.txt`. The template uses `{PR_DATA}` as a placeholder that gets replaced with the actual PR information.
+
+Example template modifications:
+- Add specific analysis criteria
+- Change the output format requirements
+- Include additional context about the project
+- Modify the focus areas for analysis
