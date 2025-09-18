@@ -16,7 +16,7 @@ import os
 from typing import List, Dict, Any
 
 
-def run_command(cmd: List[str], description: str, timeout: int = 300) -> subprocess.CompletedProcess:
+def run_command(cmd: List[str], description: str, timeout: int = 60) -> subprocess.CompletedProcess:
     """Run a command and handle errors."""
     try:
         print(f"Running: {description}")
@@ -72,22 +72,17 @@ def format_prs_for_analysis(prs: List[Dict[str, Any]]) -> str:
 
 def analyze_with_cursor_agent(pr_data: str) -> None:
     """Analyze PR data using cursor-agent."""
-    analysis_prompt = f"""Please analyze the following pull requests opened by app/red-hat-konflux in the sandboxed-containers-operator project:
-
-{pr_data}
-
-Please provide:
-1. A summary of the changes across all PRs
-2. Any potential issues or concerns
-3. Suggestions for review priorities
-4. Any patterns or trends you notice
-
-Focus on:
-- Code quality and best practices
-- Security implications
-- Performance impact
-- Compatibility with existing code
-- Testing coverage"""
+    # Load the analysis prompt template
+    template_file = "hack/analysis_prompt_template.txt"
+    try:
+        with open(template_file, 'r') as f:
+            template = f.read()
+    except FileNotFoundError:
+        print(f"Error: Template file {template_file} not found")
+        return
+    
+    # Replace the placeholder with actual PR data
+    analysis_prompt = template.replace("{PR_DATA}", pr_data)
 
     # Create a temporary file with the prompt
     temp_file = "/tmp/cursor_pr_analysis.txt"
@@ -119,10 +114,10 @@ Focus on:
         print("Make sure cursor-agent is properly authenticated and configured.")
         print("Try running 'cursor-agent login' if you haven't already.")
         
-    finally:
+    #finally:
         # Clean up temporary file
-        if os.path.exists(temp_file):
-            os.remove(temp_file)
+        #if os.path.exists(temp_file):
+        #    os.remove(temp_file)
 
 
 def main():
