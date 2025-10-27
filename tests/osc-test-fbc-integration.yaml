@@ -41,6 +41,7 @@ spec:
               echo "${catalogImage}" > $(results.CATALOG_IMAGE.path)
     - name: prow-job
       displayName: "Running prow job $(params.PROWJOB_NAME)"
+      timeout: "4h"
       runAfter:
         - get-catalog-image
       taskRef:
