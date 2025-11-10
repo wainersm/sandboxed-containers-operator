@@ -42,6 +42,7 @@ spec:
     - name: prow-job
       displayName: "Running prow job $(params.PROWJOB_NAME)"
       timeout: "4h"
+      onError: continue
       runAfter:
         - get-catalog-image
       taskRef:
@@ -67,3 +68,94 @@ spec:
               - periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate-azure-ipi-kata
               - periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate-azure-ipi-peerpods
               - periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate-aws-ipi-peerpods
+    - name: check-test-results  
+      displayName: "Check test results for $(params.PROWJOB_NAME)"
+      runAfter:
+        - prow-job
+      matrix:
+        params:
+          - name: PROWJOB_NAME
+            value:
+              - periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate-azure-ipi-kata
+              - periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate-azure-ipi-peerpods
+              - periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate-aws-ipi-peerpods
+      taskSpec:
+        params:
+          - name: PROWJOB_NAME
+            type: string
+        results:
+          - name: PROWJOB_URL
+            description: "The ProwJob URL from the corresponding prow-job task run"
+        steps:
+          - name: get-prowjob-url
+            image: registry.access.redhat.com/ubi9/ubi:latest
+            env:
+              - name: PROWJOB_NAME
+                value: $(params.PROWJOB_NAME)
+              - name: ALL_PROWJOB_URLS
+                value: $(tasks.prow-job.results.PROWJOB_URL[*])
+            script: |
+              #!/bin/bash
+              set -e
+
+              for url in ${ALL_PROWJOB_URLS};do
+                if [[ "${url}" == *"${PROWJOB_NAME}"* ]]; then
+                  echo "${url}" > $(results.PROWJOB_URL.path)
+                  exit 0
+                fi
+              done
+              echo "No ProwJob URL found for ${PROWJOB_NAME}"
+              exit 1
+          - name: get-files
+            image: registry.access.redhat.com/ubi9/ubi:latest
+            env:
+              - name: PROWJOB_URL
+                value: $(results.PROWJOB_URL)
+              - name: PROWJOB_NAME
+                value: $(params.PROWJOB_NAME)
+            script: |
+              #!/bin/bash
+              set -e
+              
+              echo "ProwJob URL: ${PROWJOB_URL}"
+              echo "ProwJob Name: ${PROWJOB_NAME}"
+              
+              # Extract the job name part from PROWJOB_NAME
+              # Example: periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate-aws-ipi-peerpods
+              # Should extract: aws-ipi-peerpods
+              # This is the part after "downstream-candidate-" in the job name
+              JOB_NAME_PART=$(echo "${PROWJOB_NAME}" | sed -E 's/.*downstream-candidate-(.+)/\1/')
+              
+              if [ -z "${JOB_NAME_PART}" ]; then
+                echo "Error: Could not extract job name part from ${PROWJOB_NAME}"
+                exit 1
+              fi
+              
+              echo "Extracted job name part: ${JOB_NAME_PART}"
+              
+              # Extract the GCS path from PROWJOB_URL
+              # PROWJOB_URL format: https://prow.ci.openshift.org/view/gs/test-platform-results/logs/{job-name}/{job-id}
+              # We need to extract the path after /view/gs and construct the GCS web URL
+              GCS_PATH=$(echo "${PROWJOB_URL}" | sed -E 's|.*/view/gs(/.*)|/gcs\1|')
+              
+              if [ -z "${GCS_PATH}" ]; then
+                echo "Error: Could not extract GCS path from ${PROWJOB_URL}"
+                exit 1
+              fi
+              
+              # Construct the GCS web URL
+              # The GCS web URL format: https://gcsweb-ci.apps.ci.l2s4.p1.openshiftapps.com/gcs/test-platform-results/logs/{job-name}/{job-id}/artifacts/{job-name-part}/openshift-extended-test/artifacts/test-results.yaml
+              GCS_BASE_URL="https://gcsweb-ci.apps.ci.l2s4.p1.openshiftapps.com"
+              TEST_RESULTS_URL="${GCS_BASE_URL}${GCS_PATH}/artifacts/${JOB_NAME_PART}/openshift-extended-test/artifacts/test-results.yaml"
+              
+              echo "Test results URL: ${TEST_RESULTS_URL}"
+              
+              # Download the test-results.yaml file
+              # Use -L to follow redirects (in case there are any)
+              curl -L -f -s -o test-results.yaml "${TEST_RESULTS_URL}" || {
+                echo "Error: Failed to download test-results.yaml from ${TEST_RESULTS_URL}"
+                exit 1
+              }
+              
+              echo "Successfully downloaded test-results.yaml"
+              cat test-results.yaml
