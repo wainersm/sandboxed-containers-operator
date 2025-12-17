@@ -5,6 +5,7 @@ Extracts job metadata from prowjob.json and related artifacts.
 """
 
 import re
+import json
 import logging
 from typing import Dict, Optional
 from .fetcher import fetch_artifact, extract_variant_from_job_name
@@ -62,16 +63,62 @@ def extract_workload_type(job_name: str) -> str:
         return 'unknown'
 
 
-def extract_ocp_version(prowjob_data: Dict) -> str:
+def extract_ocp_version_from_release_artifact(base_url: str) -> Optional[str]:
     """
-    Extract OCP version from prowjob metadata.
+    Extract exact OCP version from release-images-latest artifact.
+
+    Args:
+        base_url: Base URL of the Prow job
+
+    Returns:
+        OCP version string (e.g., "4.17.45") or None if not found
+    """
+    release_artifact_path = "artifacts/release/artifacts/release-images-latest"
+    content = fetch_artifact(base_url, release_artifact_path)
+
+    if content:
+        try:
+            # Check if we got HTML (directory listing) instead of JSON
+            content_str = content.decode('utf-8', errors='ignore')
+            if content_str.strip().startswith('<!doctype') or content_str.strip().startswith('<html'):
+                logger.debug("Got HTML instead of release-images-latest, file doesn't exist")
+                return None
+
+            # Parse JSON ImageStream
+            data = json.loads(content_str)
+
+            # Extract version from metadata.name
+            if 'metadata' in data and 'name' in data['metadata']:
+                version = data['metadata']['name']
+                logger.debug(f"Found OCP version from release artifact: {version}")
+                return version
+
+        except json.JSONDecodeError as e:
+            logger.debug(f"Failed to parse release-images-latest as JSON: {e}")
+        except Exception as e:
+            logger.debug(f"Failed to extract OCP version from release artifact: {e}")
+
+    return None
+
+
+def extract_ocp_version(prowjob_data: Dict, base_url: str = None) -> str:
+    """
+    Extract OCP version from release artifact or prowjob metadata.
 
     Args:
         prowjob_data: Parsed prowjob.json
+        base_url: Optional base URL for fetching release artifact
 
     Returns:
-        OCP version string (e.g., "4.19") or 'unknown'
+        OCP version string (e.g., "4.17.45") or 'unknown'
     """
+    # First try to get exact version from release artifact
+    if base_url:
+        version = extract_ocp_version_from_release_artifact(base_url)
+        if version:
+            return version
+        logger.debug("Falling back to prowjob metadata for OCP version")
+
     # Try to extract from environment variables
     env_vars = prowjob_data.get('env_vars', {})
 
@@ -83,6 +130,13 @@ def extract_ocp_version(prowjob_data: Dict) -> str:
             match = re.search(r'(\d+\.\d+)', value)
             if match:
                 return match.group(1)
+
+    # Try to extract from job name
+    # Pattern: ...ocp-4.19-... or ...4-19-...
+    job_name = prowjob_data.get('job_name', '')
+    match = re.search(r'(?:ocp-)?(\d+)[-\.](\d+)', job_name)
+    if match:
+        return f"{match.group(1)}.{match.group(2)}"
 
     # Try labels
     labels = prowjob_data.get('metadata', {}).get('labels', {})
@@ -245,7 +299,7 @@ def extract_kata_rpm_version(base_url: str, variant: str) -> Optional[str]:
             else:
                 version = content_str.strip()
                 if version and len(version) < 200:  # Sanity check - version shouldn't be too long
-                    logger.info(f"Found Kata RPM version: {version}")
+                    logger.debug(f"Found Kata RPM version: {version}")
                     return version
         except Exception as e:
             logger.debug(f"Failed to parse kata-rpm-version.txt: {e}")
@@ -263,43 +317,12 @@ def extract_kata_rpm_version(base_url: str, variant: str) -> Optional[str]:
                 match = re.search(r'kata[a-z-]*\s+(\d+\.\d+\.\d+-\d+\..*)', log_text)
                 if match:
                     version = match.group(1)
-                    logger.info(f"Extracted Kata RPM version from log: {version}")
+                    logger.debug(f"Extracted Kata RPM version from log: {version}")
                     return version
         except Exception as e:
             logger.debug(f"Failed to parse build log: {e}")
 
     logger.debug("Kata RPM version not found (may be using node default)")
-    return None
-
-
-def extract_ocp_version_from_extended_log(base_url: str, variant: str) -> Optional[str]:
-    """
-    Extract OCP version from extended.log.
-
-    Args:
-        base_url: Base URL of the Prow job
-        variant: Job variant for artifact path
-
-    Returns:
-        OCP version string or None if not found
-    """
-    extended_log_path = f"artifacts/{variant}/openshift-extended-test/artifacts/extended.log"
-    content = fetch_artifact(base_url, extended_log_path)
-
-    if content:
-        try:
-            log_text = content.decode('utf-8', errors='ignore')
-            # Look for patterns like:
-            # "release version: 4.20.4"
-            # "Cluster version is \"4.20.4\""
-            match = re.search(r'(?:release version|Cluster version is):\s*["]?(\d+\.\d+\.\d+)', log_text)
-            if match:
-                version = match.group(1)
-                logger.info(f"Found OCP version in extended.log: {version}")
-                return version
-        except Exception as e:
-            logger.debug(f"Failed to parse extended.log for OCP version: {e}")
-
     return None
 
 
@@ -325,7 +348,7 @@ def extract_catalog_from_extended_log(base_url: str, variant: str) -> Optional[s
             match = re.search(r'catalog source image & tag:\s+([^\s]+)', log_text)
             if match:
                 catalog_image = match.group(1)
-                logger.info(f"Found catalog source in extended.log: {catalog_image}")
+                logger.debug(f"Found catalog source in extended.log: {catalog_image}")
                 return catalog_image
         except Exception as e:
             logger.debug(f"Failed to parse extended.log for catalog source: {e}")
@@ -347,19 +370,10 @@ def extract_metadata(prowjob_data: Dict, base_url: str) -> Dict:
     job_name = prowjob_data.get('job_name', '')
     variant = extract_variant_from_job_name(job_name)
 
-    # Extract OCP version from prowjob first
-    ocp_version = extract_ocp_version(prowjob_data)
-
-    # If not found and variant is known, try extended.log
-    if ocp_version == 'unknown' and variant:
-        ocp_from_log = extract_ocp_version_from_extended_log(base_url, variant)
-        if ocp_from_log:
-            ocp_version = ocp_from_log
-
     metadata = {
         'provider': extract_provider(job_name),
         'workload_type': extract_workload_type(job_name),
-        'ocp_version': ocp_version,
+        'ocp_version': extract_ocp_version(prowjob_data, base_url),
         'trigger_source': extract_trigger_source(prowjob_data),
         'variant': variant or 'unknown',
         'job_name': job_name,
