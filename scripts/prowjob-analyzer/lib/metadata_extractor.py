@@ -1,0 +1,263 @@
+"""
+Metadata Extractor Module
+
+Extracts job metadata from prowjob.json and related artifacts.
+"""
+
+import re
+import logging
+from typing import Dict, Optional
+from .fetcher import fetch_artifact, extract_variant_from_job_name
+
+logger = logging.getLogger(__name__)
+
+
+def extract_provider(job_name: str) -> str:
+    """
+    Extract cloud provider from job name.
+
+    Args:
+        job_name: Prow job name
+
+    Returns:
+        Provider name (aws, azure, gcp, etc.) or 'unknown'
+    """
+    providers = {
+        'aws': 'AWS',
+        'azure': 'Azure',
+        'gcp': 'GCP',
+        'ibmcloud': 'IBM Cloud',
+        'vsphere': 'vSphere',
+        'openstack': 'OpenStack',
+        'baremetal': 'Bare Metal',
+    }
+
+    job_lower = job_name.lower()
+    for key, value in providers.items():
+        if key in job_lower:
+            return value
+
+    return 'unknown'
+
+
+def extract_workload_type(job_name: str) -> str:
+    """
+    Extract workload type from job name.
+
+    Args:
+        job_name: Prow job name
+
+    Returns:
+        Workload type (kata, peerpods, coco, etc.) or 'unknown'
+    """
+    job_lower = job_name.lower()
+
+    if 'peerpods' in job_lower or 'peer-pods' in job_lower:
+        return 'peerpods'
+    elif 'coco' in job_lower or 'confidential' in job_lower:
+        return 'confidential-containers'
+    elif 'kata' in job_lower:
+        return 'kata'
+    else:
+        return 'unknown'
+
+
+def extract_ocp_version(prowjob_data: Dict) -> str:
+    """
+    Extract OCP version from prowjob metadata.
+
+    Args:
+        prowjob_data: Parsed prowjob.json
+
+    Returns:
+        OCP version string (e.g., "4.19") or 'unknown'
+    """
+    # Try to extract from environment variables
+    env_vars = prowjob_data.get('env_vars', {})
+
+    # Check for common OCP version variables
+    for var_name in ['OPENSHIFT_VERSION', 'OCP_VERSION', 'RELEASE_IMAGE_LATEST']:
+        if var_name in env_vars:
+            value = env_vars[var_name]
+            # Try to extract version number (e.g., "4.19" from various formats)
+            match = re.search(r'(\d+\.\d+)', value)
+            if match:
+                return match.group(1)
+
+    # Try to extract from job name
+    # Pattern: ...ocp-4.19-... or ...4-19-...
+    job_name = prowjob_data.get('job_name', '')
+    match = re.search(r'(?:ocp-)?(\d+)[-\.](\d+)', job_name)
+    if match:
+        return f"{match.group(1)}.{match.group(2)}"
+
+    # Try labels
+    labels = prowjob_data.get('metadata', {}).get('labels', {})
+    if 'prow.k8s.io/release' in labels:
+        return labels['prow.k8s.io/release']
+
+    return 'unknown'
+
+
+def extract_build_info(prowjob_data: Dict) -> Dict:
+    """
+    Extract build/catalog information from prowjob.
+
+    Args:
+        prowjob_data: Parsed prowjob.json
+
+    Returns:
+        Dictionary with build information
+    """
+    env_vars = prowjob_data.get('env_vars', {})
+
+    build_info = {
+        'catalog_source_image': env_vars.get('CATALOG_SOURCE_IMAGE', ''),
+        'catalog_source_name': env_vars.get('CATALOG_SOURCE_NAME', ''),
+        'expected_operator_version': env_vars.get('EXPECTED_OPERATOR_VERSION', ''),
+        'build_type': 'unknown',
+    }
+
+    # Determine build type from catalog or job name
+    catalog_image = build_info['catalog_source_image']
+    job_name = prowjob_data.get('job_name', '')
+
+    if 'candidate' in job_name or 'candidate' in catalog_image:
+        build_info['build_type'] = 'candidate'
+    elif 'brew' in catalog_image or 'brew-catalog' in job_name:
+        build_info['build_type'] = 'brew'
+    elif 'ga' in job_name or 'production' in job_name:
+        build_info['build_type'] = 'ga'
+
+    return build_info
+
+
+def extract_trigger_source(prowjob_data: Dict) -> str:
+    """
+    Extract trigger source for the job.
+
+    Args:
+        prowjob_data: Parsed prowjob.json
+
+    Returns:
+        Trigger source (periodic, presubmit, postsubmit, manual, konflux, rehearsal, etc.)
+    """
+    job_type = prowjob_data.get('type', '').lower()
+    job_name = prowjob_data.get('job_name', '')
+
+    # Check for Konflux trigger
+    labels = prowjob_data.get('metadata', {}).get('labels', {})
+    annotations = prowjob_data.get('metadata', {}).get('annotations', {})
+
+    if 'prow.k8s.io/integration-test' in labels or 'konflux' in str(labels).lower():
+        return 'konflux'
+
+    # Check for rehearsal (presubmit PR testing)
+    if 'rehearse' in job_name.lower():
+        return 'rehearsal'
+
+    # Check for clusterbot
+    env_vars = prowjob_data.get('env_vars', {})
+    if 'CLUSTER_TYPE' in env_vars or 'clusterbot' in str(annotations).lower():
+        return 'clusterbot'
+
+    # Standard Prow job types
+    if job_type in ['periodic', 'presubmit', 'postsubmit']:
+        return job_type
+
+    return 'manual'
+
+
+def extract_kata_rpm_version(base_url: str, variant: str) -> Optional[str]:
+    """
+    Extract Kata RPM version from job artifacts.
+
+    Args:
+        base_url: Base URL of the Prow job
+        variant: Job variant for artifact path
+
+    Returns:
+        Kata RPM version string or None if not found
+    """
+    # Try to fetch kata-rpm-version.txt
+    rpm_version_path = f"artifacts/{variant}/sandboxed-containers-operator-get-kata-rpm/artifacts/kata-rpm-version.txt"
+    content = fetch_artifact(base_url, rpm_version_path)
+
+    if content:
+        try:
+            # Check if we got HTML (directory listing) instead of text
+            content_str = content.decode('utf-8', errors='ignore')
+            if content_str.strip().startswith('<!doctype') or content_str.strip().startswith('<html'):
+                logger.debug("Got HTML instead of kata-rpm-version.txt, file doesn't exist")
+            else:
+                version = content_str.strip()
+                if version and len(version) < 200:  # Sanity check - version shouldn't be too long
+                    logger.info(f"Found Kata RPM version: {version}")
+                    return version
+        except Exception as e:
+            logger.debug(f"Failed to parse kata-rpm-version.txt: {e}")
+
+    # Alternative: parse from build log
+    build_log_path = f"artifacts/{variant}/sandboxed-containers-operator-get-kata-rpm/artifacts/build-log.txt"
+    content = fetch_artifact(base_url, build_log_path)
+
+    if content:
+        try:
+            log_text = content.decode('utf-8', errors='ignore')
+            # Don't try to parse if it's HTML
+            if not (log_text.strip().startswith('<!doctype') or log_text.strip().startswith('<html')):
+                # Look for RPM version patterns
+                match = re.search(r'kata[a-z-]*\s+(\d+\.\d+\.\d+-\d+\..*)', log_text)
+                if match:
+                    version = match.group(1)
+                    logger.info(f"Extracted Kata RPM version from log: {version}")
+                    return version
+        except Exception as e:
+            logger.debug(f"Failed to parse build log: {e}")
+
+    logger.debug("Kata RPM version not found (may be using node default)")
+    return None
+
+
+def extract_metadata(prowjob_data: Dict, base_url: str) -> Dict:
+    """
+    Extract all metadata from prowjob and artifacts.
+
+    Args:
+        prowjob_data: Parsed prowjob.json with job_info
+        base_url: Base URL for fetching artifacts
+
+    Returns:
+        Dictionary with all extracted metadata
+    """
+    job_name = prowjob_data.get('job_name', '')
+    variant = extract_variant_from_job_name(job_name)
+
+    metadata = {
+        'provider': extract_provider(job_name),
+        'workload_type': extract_workload_type(job_name),
+        'ocp_version': extract_ocp_version(prowjob_data),
+        'trigger_source': extract_trigger_source(prowjob_data),
+        'variant': variant or 'unknown',
+        'job_name': job_name,
+        'build_id': prowjob_data.get('build_id', 'unknown'),
+    }
+
+    # Extract build information
+    build_info = extract_build_info(prowjob_data)
+    metadata.update(build_info)
+
+    # Extract Kata RPM version if variant is known
+    if variant:
+        kata_rpm_version = extract_kata_rpm_version(base_url, variant)
+        if kata_rpm_version:
+            metadata['kata_rpm_version'] = kata_rpm_version
+            metadata['kata_rpm_source'] = 'installed'
+        else:
+            metadata['kata_rpm_version'] = 'node-default'
+            metadata['kata_rpm_source'] = 'node'
+    else:
+        metadata['kata_rpm_version'] = 'unknown'
+        metadata['kata_rpm_source'] = 'unknown'
+
+    return metadata

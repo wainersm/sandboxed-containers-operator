@@ -1,0 +1,321 @@
+"""
+Report Generator Module
+
+Generates human-readable markdown and machine-parsable JSON reports.
+"""
+
+import json
+import logging
+from typing import Dict, List, Optional
+from datetime import datetime
+from .parser import format_duration
+from .fetcher import get_artifact_url
+
+logger = logging.getLogger(__name__)
+
+
+def format_status_emoji(status: str) -> str:
+    """Get emoji for job status."""
+    status_emojis = {
+        'success': '✅',
+        'failure': '❌',
+        'timeout': '⏱️',
+        'error': '💥',
+        'aborted': '🛑',
+        'pending': '⏳',
+        'unknown': '❓',
+    }
+    return status_emojis.get(status.lower(), '❓')
+
+
+def format_human_intervention(needs_human: bool) -> str:
+    """Format human intervention requirement."""
+    if needs_human:
+        return '✅ Yes - Manual investigation needed'
+    else:
+        return '⏸️ No - Safe to retry (likely transient issue)'
+
+
+def generate_test_results_section(test_results: Dict, failure_analysis: Dict) -> str:
+    """Generate test results section for report."""
+    if not test_results:
+        return "\n## Test Results\n\nNo test results available.\n"
+
+    # Handle different test results formats
+    total = test_results.get('total', 0)
+    if total == 0:
+        # Fallback to 'tests' field or count of test list
+        total = test_results.get('tests', 0) if isinstance(test_results.get('tests'), int) else len(test_results.get('tests', []))
+    failures = test_results.get('failures', 0)
+    passed = total - failures
+    skipped = test_results.get('skipped', 0)
+
+    section = "\n## Test Results\n\n"
+    section += f"- **Total Tests**: {total}\n"
+    section += f"- **Passed**: {passed} ✅\n"
+    section += f"- **Failed**: {failures} {'❌' if failures > 0 else ''}\n"
+    section += f"- **Skipped**: {skipped}\n"
+
+    # Add failing tests breakdown if any
+    if failures > 0:
+        failing_tests_by_cat = failure_analysis.get('failing_tests_by_category', {})
+        if failing_tests_by_cat:
+            section += "\n### Failed Tests by Category\n\n"
+            for category, tests in sorted(failing_tests_by_cat.items()):
+                section += f"#### {category.replace('_', ' ').title()} ({len(tests)} tests)\n\n"
+                for test in tests:
+                    test_name = test.get('name', 'Unknown')
+                    # Shorten very long test names
+                    if len(test_name) > 100:
+                        test_name = test_name[:97] + "..."
+                    section += f"- `{test_name}`\n"
+                section += "\n"
+
+    return section
+
+
+def generate_failure_analysis_section(failure_analysis: Dict, base_url: str, variant: str) -> str:
+    """Generate failure analysis section."""
+    if not failure_analysis:
+        return ""
+
+    section = "\n## Failure Analysis\n\n"
+
+    # Failure location
+    location = failure_analysis.get('failure_location', 'unknown')
+    section += f"**Failure Location**: {location}\n\n"
+
+    if location == 'test_step':
+        section += "The job failed during the automated test execution step.\n\n"
+    elif location == 'prow_step':
+        failed_step = failure_analysis.get('failed_step', 'unknown step')
+        section += f"The job failed during a Prow orchestration step: `{failed_step}`\n\n"
+    elif location == 'timeout':
+        section += "The job exceeded its execution timeout.\n\n"
+    elif location == 'infrastructure':
+        section += "The job failed due to infrastructure issues.\n\n"
+
+    # Detected patterns
+    patterns = failure_analysis.get('detected_patterns', [])
+    if patterns:
+        section += "**Detected Patterns**: " + ", ".join(patterns) + "\n\n"
+
+    # Root cause
+    root_cause = failure_analysis.get('root_cause', {})
+    if root_cause.get('likely_cause'):
+        section += f"**Likely Cause**: {root_cause['likely_cause']}\n\n"
+        section += f"**Confidence**: {root_cause['confidence']}\n\n"
+
+    # Suggested actions
+    suggested_actions = root_cause.get('suggested_actions', [])
+    if suggested_actions:
+        section += "### Suggested Actions\n\n"
+        for action in suggested_actions:
+            section += f"- {action}\n"
+        section += "\n"
+
+    return section
+
+
+def generate_artifacts_section(base_url: str, variant: str, test_results_available: bool) -> str:
+    """Generate artifacts links section."""
+    section = "\n## Artifacts\n\n"
+
+    section += f"- [Prow Job]({base_url})\n"
+    section += f"- [prowjob.json]({get_artifact_url(base_url, 'prowjob.json')})\n"
+    section += f"- [finished.json]({get_artifact_url(base_url, 'finished.json')})\n"
+
+    if variant and variant != 'unknown':
+        section += f"- [Test Results]({get_artifact_url(base_url, f'artifacts/{variant}/openshift-extended-test/artifacts/test-results.yaml')})\n"
+        section += f"- [Extended Test Logs]({get_artifact_url(base_url, f'artifacts/{variant}/openshift-extended-test/artifacts/extended.log')})\n"
+        section += f"- [Must-Gather]({get_artifact_url(base_url, f'artifacts/{variant}/sandboxed-containers-operator-gather-must-gather/artifacts/')})\n"
+
+    return section
+
+
+def generate_human_report(
+    prowjob_data: Dict,
+    metadata: Dict,
+    status: str,
+    test_results: Optional[Dict],
+    failure_analysis: Optional[Dict],
+    base_url: str
+) -> str:
+    """
+    Generate human-readable markdown report.
+
+    Args:
+        prowjob_data: Parsed prowjob data
+        metadata: Extracted metadata
+        status: Overall job status
+        test_results: Test results (if available)
+        failure_analysis: Failure analysis (if failed)
+        base_url: Base URL of Prow job
+
+    Returns:
+        Markdown formatted report
+    """
+    report = "# Prow Job Analysis Report\n\n"
+
+    # Status
+    status_emoji = format_status_emoji(status)
+    report += f"## Status: {status_emoji} {status.upper()}\n\n"
+
+    # Job Overview
+    report += "## Job Overview\n\n"
+    report += f"- **Job Name**: `{metadata['job_name']}`\n"
+    report += f"- **Build ID**: `{metadata['build_id']}`\n"
+    report += f"- **Trigger**: {metadata['trigger_source']}\n"
+
+    duration = prowjob_data.get('duration_seconds', 0)
+    if duration > 0:
+        report += f"- **Duration**: {format_duration(duration)}\n"
+
+    start_time = prowjob_data.get('start_time', '')
+    if start_time:
+        report += f"- **Started**: {start_time}\n"
+
+    report += f"- **URL**: {base_url}\n"
+
+    # Environment
+    report += "\n## Environment\n\n"
+    report += f"- **Provider**: {metadata['provider']}\n"
+    report += f"- **OCP Version**: {metadata['ocp_version']}\n"
+    report += f"- **Workload**: {metadata['workload_type']}\n"
+    report += f"- **Variant**: {metadata['variant']}\n"
+
+    if metadata.get('kata_rpm_version'):
+        rpm_version = metadata['kata_rpm_version']
+        rpm_source = metadata.get('kata_rpm_source', 'unknown')
+        if rpm_version != 'node-default':
+            report += f"- **Kata RPM**: {rpm_version} ({rpm_source})\n"
+        else:
+            report += f"- **Kata RPM**: Using node default (not installed by job)\n"
+
+    if metadata.get('catalog_source_image'):
+        catalog = metadata['catalog_source_image']
+        # Shorten long catalog images
+        if len(catalog) > 80:
+            catalog = "..." + catalog[-77:]
+        report += f"- **Build**: `{catalog}`\n"
+
+    if metadata.get('expected_operator_version'):
+        report += f"- **Expected Operator Version**: {metadata['expected_operator_version']}\n"
+
+    report += f"- **Build Type**: {metadata['build_type']}\n"
+
+    # Test Results
+    if test_results:
+        report += generate_test_results_section(test_results, failure_analysis or {})
+
+    # Failure Analysis (if failed)
+    if status != 'success' and failure_analysis:
+        report += generate_failure_analysis_section(failure_analysis, base_url, metadata.get('variant', ''))
+
+        # Human intervention
+        report += "\n## Human Intervention Required\n\n"
+        needs_human = failure_analysis.get('needs_human', True)
+        report += format_human_intervention(needs_human) + "\n"
+
+    # Artifacts
+    report += generate_artifacts_section(base_url, metadata.get('variant', ''), test_results is not None)
+
+    return report
+
+
+def generate_json_report(
+    prowjob_data: Dict,
+    metadata: Dict,
+    status: str,
+    test_results: Optional[Dict],
+    failure_analysis: Optional[Dict],
+    base_url: str
+) -> str:
+    """
+    Generate machine-parsable JSON report.
+
+    Args:
+        prowjob_data: Parsed prowjob data
+        metadata: Extracted metadata
+        status: Overall job status
+        test_results: Test results (if available)
+        failure_analysis: Failure analysis (if failed)
+        base_url: Base URL of Prow job
+
+    Returns:
+        JSON formatted report
+    """
+    report = {
+        'version': '1.0',
+        'timestamp': datetime.utcnow().isoformat() + 'Z',
+        'prowjob': {
+            'url': base_url,
+            'name': metadata['job_name'],
+            'build_id': metadata['build_id'],
+            'status': status,
+            'trigger': metadata['trigger_source'],
+            'duration_seconds': prowjob_data.get('duration_seconds', 0),
+            'start_time': prowjob_data.get('start_time', ''),
+            'completion_time': prowjob_data.get('completion_time', ''),
+        },
+        'metadata': {
+            'provider': metadata['provider'],
+            'ocp_version': metadata['ocp_version'],
+            'workload_type': metadata['workload_type'],
+            'kata_rpm_version': metadata.get('kata_rpm_version', 'unknown'),
+            'kata_rpm_source': metadata.get('kata_rpm_source', 'unknown'),
+            'variant': metadata['variant'],
+            'build_type': metadata['build_type'],
+            'catalog_source_image': metadata.get('catalog_source_image', ''),
+            'expected_operator_version': metadata.get('expected_operator_version', ''),
+        },
+    }
+
+    # Test results summary
+    if test_results:
+        # Handle different test results formats
+        total = test_results.get('total', 0)
+        if total == 0:
+            # Fallback to 'tests' field or count of test list
+            total = test_results.get('tests', 0) if isinstance(test_results.get('tests'), int) else len(test_results.get('tests', []))
+        failures = test_results.get('failures', 0)
+
+        report['test_results'] = {
+            'total': total,
+            'passed': total - failures,
+            'failed': failures,
+            'skipped': test_results.get('skipped', 0),
+        }
+
+    # Failure analysis
+    if failure_analysis:
+        failing_tests = failure_analysis.get('failing_tests', [])
+
+        report['failure_analysis'] = {
+            'failure_location': failure_analysis.get('failure_location', 'unknown'),
+            'failed_step': failure_analysis.get('failed_step'),
+            'failing_tests': [
+                {
+                    'name': test.get('name', ''),
+                    'duration': test.get('duration', 0),
+                }
+                for test in failing_tests
+            ],
+            'detected_patterns': failure_analysis.get('detected_patterns', []),
+            'root_cause': failure_analysis.get('root_cause', {}),
+            'needs_human_intervention': failure_analysis.get('needs_human', True),
+        }
+
+    # Artifacts
+    variant = metadata.get('variant', '')
+    report['artifacts'] = {
+        'prowjob_json': get_artifact_url(base_url, 'prowjob.json'),
+        'finished_json': get_artifact_url(base_url, 'finished.json'),
+    }
+
+    if variant and variant != 'unknown':
+        report['artifacts']['test_results'] = get_artifact_url(base_url, f'artifacts/{variant}/openshift-extended-test/artifacts/test-results.yaml')
+        report['artifacts']['extended_log'] = get_artifact_url(base_url, f'artifacts/{variant}/openshift-extended-test/artifacts/extended.log')
+        report['artifacts']['must_gather'] = get_artifact_url(base_url, f'artifacts/{variant}/sandboxed-containers-operator-gather-must-gather/artifacts/')
+
+    return json.dumps(report, indent=2)
