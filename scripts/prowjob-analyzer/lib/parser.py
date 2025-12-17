@@ -142,6 +142,61 @@ def get_job_status(prowjob_data: Dict, test_results: Optional[Dict] = None) -> s
         return 'unknown'
 
 
+def parse_test_case_info(test_name: str) -> Dict:
+    """
+    Parse test case number and description from test name.
+
+    Test names typically follow patterns like:
+    "[sig-kata] Kata Author:user-Priority-C12345-test description [Serial]"
+
+    Args:
+        test_name: Full test name
+
+    Returns:
+        Dictionary with test_case_number and description
+    """
+    import re
+
+    info = {
+        'test_case_number': '',
+        'description': '',
+        'priority': '',
+        'author': '',
+    }
+
+    # Extract test case number (C##### pattern)
+    case_match = re.search(r'-C(\d+)-', test_name)
+    if case_match:
+        info['test_case_number'] = f"C{case_match.group(1)}"
+
+    # Extract priority (High, Medium, Low)
+    priority_match = re.search(r'-(High|Medium|Low)-', test_name)
+    if priority_match:
+        info['priority'] = priority_match.group(1)
+
+    # Extract author
+    author_match = re.search(r'Author:([^-]+)-', test_name)
+    if author_match:
+        info['author'] = author_match.group(1)
+
+    # Extract description (after C##### until [Serial] or end)
+    # Pattern: -C#####-description [optional tags]
+    desc_match = re.search(r'-C\d+-(.*?)(?:\s*\[|$)', test_name)
+    if desc_match:
+        info['description'] = desc_match.group(1).strip()
+    else:
+        # Fallback: try to extract anything after the last - until [
+        desc_match2 = re.search(r'-([^-\[]+)(?:\s*\[|$)', test_name)
+        if desc_match2:
+            info['description'] = desc_match2.group(1).strip()
+
+    # If no description found, use full test name
+    if not info['description']:
+        info['description'] = test_name
+
+    return info
+
+
 def extract_failing_tests(test_results: Dict) -> List[Dict]:
     """
     Extract list of failing tests from test-results.yaml.
@@ -157,18 +212,43 @@ def extract_failing_tests(test_results: Dict) -> List[Dict]:
     if not test_results:
         return failing_tests
 
-    # test-results.yaml typically has a 'tests' list
+    # Check for 'failingScenarios' list (simpler format)
+    failing_scenarios = test_results.get('failingScenarios', [])
+    if failing_scenarios:
+        for test_name in failing_scenarios:
+            case_info = parse_test_case_info(test_name)
+            failing_tests.append({
+                'name': test_name,
+                'duration': 0,
+                'failure_message': '',
+                'system_out': '',
+                'system_err': '',
+                'test_case_number': case_info['test_case_number'],
+                'description': case_info['description'],
+                'priority': case_info['priority'],
+                'author': case_info['author'],
+            })
+        return failing_tests
+
+    # Fall back to 'tests' list (detailed format)
     tests = test_results.get('tests', [])
 
     for test in tests:
         # Check if test failed
         if test.get('state') == 'failed' or test.get('failed', False):
+            test_name = test.get('name', 'unknown')
+            case_info = parse_test_case_info(test_name)
+
             failing_tests.append({
-                'name': test.get('name', 'unknown'),
+                'name': test_name,
                 'duration': test.get('duration', 0),
                 'failure_message': test.get('failureMessage', ''),
                 'system_out': test.get('systemOut', ''),
                 'system_err': test.get('systemErr', ''),
+                'test_case_number': case_info['test_case_number'],
+                'description': case_info['description'],
+                'priority': case_info['priority'],
+                'author': case_info['author'],
             })
 
     return failing_tests

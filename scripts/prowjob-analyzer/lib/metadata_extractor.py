@@ -84,19 +84,60 @@ def extract_ocp_version(prowjob_data: Dict) -> str:
             if match:
                 return match.group(1)
 
-    # Try to extract from job name
-    # Pattern: ...ocp-4.19-... or ...4-19-...
-    job_name = prowjob_data.get('job_name', '')
-    match = re.search(r'(?:ocp-)?(\d+)[-\.](\d+)', job_name)
-    if match:
-        return f"{match.group(1)}.{match.group(2)}"
-
     # Try labels
     labels = prowjob_data.get('metadata', {}).get('labels', {})
     if 'prow.k8s.io/release' in labels:
         return labels['prow.k8s.io/release']
 
     return 'unknown'
+
+
+def parse_catalog_tag(catalog_image: str) -> Dict:
+    """
+    Parse catalog image tag to extract version and timestamp.
+
+    Args:
+        catalog_image: Full catalog image string (e.g., quay.io/.../osc-test-fbc:1.11.1-1765791442)
+
+    Returns:
+        Dictionary with parsed catalog information
+    """
+    from datetime import datetime, timezone
+
+    catalog_info = {
+        'full_tag': '',
+        'base_version': '',
+        'timestamp': '',
+        'build_date': '',
+    }
+
+    if not catalog_image or ':' not in catalog_image:
+        return catalog_info
+
+    # Extract tag from image
+    tag = catalog_image.split(':')[-1]
+    catalog_info['full_tag'] = tag
+
+    # Parse version-timestamp format (e.g., "1.11.1-1765791442")
+    match = re.match(r'^([\d.]+)-(\d+)$', tag)
+    if match:
+        catalog_info['base_version'] = match.group(1)
+        catalog_info['timestamp'] = match.group(2)
+
+        # Convert timestamp to UTC datetime
+        try:
+            timestamp_int = int(match.group(2))
+            dt = datetime.fromtimestamp(timestamp_int, tz=timezone.utc)
+            catalog_info['build_date'] = dt.strftime('%Y-%m-%d %H:%M:%S UTC')
+        except (ValueError, OSError) as e:
+            logger.debug(f"Failed to convert timestamp {match.group(2)}: {e}")
+            catalog_info['build_date'] = 'invalid-timestamp'
+    else:
+        # Tag might be just a version or "latest"
+        catalog_info['base_version'] = tag
+        catalog_info['build_date'] = 'unknown'
+
+    return catalog_info
 
 
 def extract_build_info(prowjob_data: Dict) -> Dict:
@@ -111,15 +152,20 @@ def extract_build_info(prowjob_data: Dict) -> Dict:
     """
     env_vars = prowjob_data.get('env_vars', {})
 
+    catalog_image = env_vars.get('CATALOG_SOURCE_IMAGE', '')
+
     build_info = {
-        'catalog_source_image': env_vars.get('CATALOG_SOURCE_IMAGE', ''),
+        'catalog_source_image': catalog_image,
         'catalog_source_name': env_vars.get('CATALOG_SOURCE_NAME', ''),
         'expected_operator_version': env_vars.get('EXPECTED_OPERATOR_VERSION', ''),
         'build_type': 'unknown',
     }
 
+    # Parse catalog tag for version and timestamp
+    catalog_info = parse_catalog_tag(catalog_image)
+    build_info.update(catalog_info)
+
     # Determine build type from catalog or job name
-    catalog_image = build_info['catalog_source_image']
     job_name = prowjob_data.get('job_name', '')
 
     if 'candidate' in job_name or 'candidate' in catalog_image:
@@ -128,6 +174,13 @@ def extract_build_info(prowjob_data: Dict) -> Dict:
         build_info['build_type'] = 'brew'
     elif 'ga' in job_name or 'production' in job_name:
         build_info['build_type'] = 'ga'
+
+    # Determine release stage from job name
+    build_info['release_stage'] = ''
+    if 'downstream-candidate' in job_name:
+        build_info['release_stage'] = 'pre-GA'
+    elif 'downstream-release' in job_name:
+        build_info['release_stage'] = 'GA'
 
     return build_info
 
@@ -219,6 +272,67 @@ def extract_kata_rpm_version(base_url: str, variant: str) -> Optional[str]:
     return None
 
 
+def extract_ocp_version_from_extended_log(base_url: str, variant: str) -> Optional[str]:
+    """
+    Extract OCP version from extended.log.
+
+    Args:
+        base_url: Base URL of the Prow job
+        variant: Job variant for artifact path
+
+    Returns:
+        OCP version string or None if not found
+    """
+    extended_log_path = f"artifacts/{variant}/openshift-extended-test/artifacts/extended.log"
+    content = fetch_artifact(base_url, extended_log_path)
+
+    if content:
+        try:
+            log_text = content.decode('utf-8', errors='ignore')
+            # Look for patterns like:
+            # "release version: 4.20.4"
+            # "Cluster version is \"4.20.4\""
+            match = re.search(r'(?:release version|Cluster version is):\s*["]?(\d+\.\d+\.\d+)', log_text)
+            if match:
+                version = match.group(1)
+                logger.info(f"Found OCP version in extended.log: {version}")
+                return version
+        except Exception as e:
+            logger.debug(f"Failed to parse extended.log for OCP version: {e}")
+
+    return None
+
+
+def extract_catalog_from_extended_log(base_url: str, variant: str) -> Optional[str]:
+    """
+    Extract catalog source image from extended.log.
+
+    Args:
+        base_url: Base URL of the Prow job
+        variant: Job variant for artifact path
+
+    Returns:
+        Catalog source image string or None if not found
+    """
+    extended_log_path = f"artifacts/{variant}/openshift-extended-test/artifacts/extended.log"
+    content = fetch_artifact(base_url, extended_log_path)
+
+    if content:
+        try:
+            log_text = content.decode('utf-8', errors='ignore')
+            # Look for catalog source image patterns
+            # Pattern: "catalog source image & tag: quay.io/.../osc-test-fbc:1.11.1-1765791442"
+            match = re.search(r'catalog source image & tag:\s+([^\s]+)', log_text)
+            if match:
+                catalog_image = match.group(1)
+                logger.info(f"Found catalog source in extended.log: {catalog_image}")
+                return catalog_image
+        except Exception as e:
+            logger.debug(f"Failed to parse extended.log for catalog source: {e}")
+
+    return None
+
+
 def extract_metadata(prowjob_data: Dict, base_url: str) -> Dict:
     """
     Extract all metadata from prowjob and artifacts.
@@ -233,10 +347,19 @@ def extract_metadata(prowjob_data: Dict, base_url: str) -> Dict:
     job_name = prowjob_data.get('job_name', '')
     variant = extract_variant_from_job_name(job_name)
 
+    # Extract OCP version from prowjob first
+    ocp_version = extract_ocp_version(prowjob_data)
+
+    # If not found and variant is known, try extended.log
+    if ocp_version == 'unknown' and variant:
+        ocp_from_log = extract_ocp_version_from_extended_log(base_url, variant)
+        if ocp_from_log:
+            ocp_version = ocp_from_log
+
     metadata = {
         'provider': extract_provider(job_name),
         'workload_type': extract_workload_type(job_name),
-        'ocp_version': extract_ocp_version(prowjob_data),
+        'ocp_version': ocp_version,
         'trigger_source': extract_trigger_source(prowjob_data),
         'variant': variant or 'unknown',
         'job_name': job_name,
@@ -245,6 +368,16 @@ def extract_metadata(prowjob_data: Dict, base_url: str) -> Dict:
 
     # Extract build information
     build_info = extract_build_info(prowjob_data)
+
+    # If catalog source not in env vars, try to extract from extended.log
+    if not build_info.get('catalog_source_image') and variant:
+        catalog_from_log = extract_catalog_from_extended_log(base_url, variant)
+        if catalog_from_log:
+            build_info['catalog_source_image'] = catalog_from_log
+            # Re-parse catalog tag with the newly found image
+            catalog_info = parse_catalog_tag(catalog_from_log)
+            build_info.update(catalog_info)
+
     metadata.update(build_info)
 
     # Extract Kata RPM version if variant is known

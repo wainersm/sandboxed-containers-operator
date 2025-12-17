@@ -60,15 +60,27 @@ def generate_test_results_section(test_results: Dict, failure_analysis: Dict) ->
     if failures > 0:
         failing_tests_by_cat = failure_analysis.get('failing_tests_by_category', {})
         if failing_tests_by_cat:
-            section += "\n### Failed Tests by Category\n\n"
+            section += "\n### Failed Tests\n\n"
             for category, tests in sorted(failing_tests_by_cat.items()):
                 section += f"#### {category.replace('_', ' ').title()} ({len(tests)} tests)\n\n"
                 for test in tests:
+                    test_case_num = test.get('test_case_number', '')
+                    description = test.get('description', '')
                     test_name = test.get('name', 'Unknown')
-                    # Shorten very long test names
-                    if len(test_name) > 100:
-                        test_name = test_name[:97] + "..."
-                    section += f"- `{test_name}`\n"
+
+                    # Display test case number and description if available
+                    if test_case_num and description:
+                        section += f"- **{test_case_num}**: {description}\n"
+                        # Add priority and author if available
+                        if test.get('priority'):
+                            section += f"  - Priority: {test['priority']}\n"
+                        if test.get('author'):
+                            section += f"  - Author: {test['author']}\n"
+                    else:
+                        # Fallback to showing test name
+                        if len(test_name) > 100:
+                            test_name = test_name[:97] + "..."
+                        section += f"- `{test_name}`\n"
                 section += "\n"
 
     return section
@@ -167,6 +179,10 @@ def generate_human_report(
     report += f"- **Build ID**: `{metadata['build_id']}`\n"
     report += f"- **Trigger**: {metadata['trigger_source']}\n"
 
+    # Show release stage if available
+    if metadata.get('release_stage'):
+        report += f"- **Release Stage**: {metadata['release_stage']}\n"
+
     duration = prowjob_data.get('duration_seconds', 0)
     if duration > 0:
         report += f"- **Duration**: {format_duration(duration)}\n"
@@ -197,10 +213,25 @@ def generate_human_report(
         # Shorten long catalog images
         if len(catalog) > 80:
             catalog = "..." + catalog[-77:]
-        report += f"- **Build**: `{catalog}`\n"
+        report += f"- **Catalog Image**: `{catalog}`\n"
 
-    if metadata.get('expected_operator_version'):
-        report += f"- **Expected Operator Version**: {metadata['expected_operator_version']}\n"
+        # Display full tag if available
+        if metadata.get('full_tag'):
+            report += f"- **Catalog Tag**: `{metadata['full_tag']}`\n"
+
+            # Display base version and build date if available
+            if metadata.get('base_version'):
+                report += f"- **Catalog Version**: {metadata['base_version']}\n"
+
+            if metadata.get('build_date') and metadata['build_date'] not in ['unknown', 'invalid-timestamp']:
+                report += f"- **Catalog Build Date**: {metadata['build_date']}\n"
+
+    # Always show expected operator version, even if empty
+    expected_ver = metadata.get('expected_operator_version', '')
+    if expected_ver:
+        report += f"- **Expected Operator Version**: {expected_ver}\n"
+    else:
+        report += f"- **Expected Operator Version**: (not set)\n"
 
     report += f"- **Build Type**: {metadata['build_type']}\n"
 
@@ -254,6 +285,7 @@ def generate_json_report(
             'build_id': metadata['build_id'],
             'status': status,
             'trigger': metadata['trigger_source'],
+            'release_stage': metadata.get('release_stage', ''),
             'duration_seconds': prowjob_data.get('duration_seconds', 0),
             'start_time': prowjob_data.get('start_time', ''),
             'completion_time': prowjob_data.get('completion_time', ''),
@@ -267,6 +299,10 @@ def generate_json_report(
             'variant': metadata['variant'],
             'build_type': metadata['build_type'],
             'catalog_source_image': metadata.get('catalog_source_image', ''),
+            'catalog_full_tag': metadata.get('full_tag', ''),
+            'catalog_version': metadata.get('base_version', ''),
+            'catalog_build_date': metadata.get('build_date', ''),
+            'catalog_timestamp': metadata.get('timestamp', ''),
             'expected_operator_version': metadata.get('expected_operator_version', ''),
         },
     }
@@ -297,6 +333,10 @@ def generate_json_report(
             'failing_tests': [
                 {
                     'name': test.get('name', ''),
+                    'test_case_number': test.get('test_case_number', ''),
+                    'description': test.get('description', ''),
+                    'priority': test.get('priority', ''),
+                    'author': test.get('author', ''),
                     'duration': test.get('duration', 0),
                 }
                 for test in failing_tests
