@@ -197,6 +197,7 @@ def generate_human_report(
     report += "\n## Environment\n\n"
     report += f"- **Provider**: {metadata['provider']}\n"
     report += f"- **OCP Version**: {metadata['ocp_version']}\n"
+    report += f"- **OCP Channel**: {metadata.get('ocp_channel', 'unknown')}\n"
     report += f"- **Workload**: {metadata['workload_type']}\n"
     report += f"- **Variant**: {metadata['variant']}\n"
 
@@ -293,6 +294,7 @@ def generate_json_report(
         'metadata': {
             'provider': metadata['provider'],
             'ocp_version': metadata['ocp_version'],
+            'ocp_channel': metadata.get('ocp_channel', 'unknown'),
             'workload_type': metadata['workload_type'],
             'kata_rpm_version': metadata.get('kata_rpm_version', 'unknown'),
             'kata_rpm_source': metadata.get('kata_rpm_source', 'unknown'),

@@ -356,6 +356,44 @@ def extract_catalog_from_extended_log(base_url: str, variant: str) -> Optional[s
     return None
 
 
+def extract_ocp_channel(base_url: str, variant: str) -> Optional[str]:
+    """
+    Extract OCP channel from ipi-install-install build-log.txt.
+
+    Args:
+        base_url: Base URL of the Prow job
+        variant: Job variant for artifact path
+
+    Returns:
+        OCP channel string (e.g., "stable-4.20") or None if not found
+    """
+    build_log_path = f"artifacts/{variant}/ipi-install-install/build-log.txt"
+    content = fetch_artifact(base_url, build_log_path)
+
+    if content:
+        try:
+            log_text = content.decode('utf-8', errors='ignore')
+            # Don't try to parse if it's HTML
+            if not (log_text.strip().startswith('<!doctype') or log_text.strip().startswith('<html')):
+                # Look for "Setting channel to" line which shows the final channel used
+                match = re.search(r'Setting channel to ((?:stable|fast|candidate|eus)-\d+\.\d+)', log_text)
+                if match:
+                    channel = match.group(1)
+                    logger.debug(f"Found OCP channel: {channel}")
+                    return channel
+
+                # Fallback: look for any channel pattern
+                match = re.search(r'(stable|fast|candidate|eus)-\d+\.\d+', log_text)
+                if match:
+                    channel = match.group(0)
+                    logger.debug(f"Found OCP channel (fallback): {channel}")
+                    return channel
+        except Exception as e:
+            logger.debug(f"Failed to parse ipi-install-install build-log.txt for OCP channel: {e}")
+
+    return None
+
+
 def extract_metadata(prowjob_data: Dict, base_url: str) -> Dict:
     """
     Extract all metadata from prowjob and artifacts.
@@ -406,5 +444,15 @@ def extract_metadata(prowjob_data: Dict, base_url: str) -> Dict:
     else:
         metadata['kata_rpm_version'] = 'unknown'
         metadata['kata_rpm_source'] = 'unknown'
+
+    # Extract OCP channel if variant is known
+    if variant:
+        ocp_channel = extract_ocp_channel(base_url, variant)
+        if ocp_channel:
+            metadata['ocp_channel'] = ocp_channel
+        else:
+            metadata['ocp_channel'] = 'unknown'
+    else:
+        metadata['ocp_channel'] = 'unknown'
 
     return metadata
