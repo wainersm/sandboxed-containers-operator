@@ -176,7 +176,7 @@ def generate_human_report(
     # Job Overview
     report += "## Job Overview\n\n"
     report += f"- **Job Name**: `{metadata['job_name']}`\n"
-    report += f"- **Build ID**: `{metadata['build_id']}`\n"
+    report += f"- **Snowflake ID**: `{metadata['build_id']}`\n"
     report += f"- **Trigger**: {metadata['trigger_source']}\n"
 
     # Show release stage if available
