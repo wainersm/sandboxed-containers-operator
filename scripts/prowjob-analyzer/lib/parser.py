@@ -42,6 +42,7 @@ def parse_prowjob(prowjob_data: Dict) -> Dict:
         'completion_time': status.get('completionTime', ''),
         'duration_seconds': 0,
         'pod_name': status.get('pod_name', ''),
+        'metadata': metadata,  # Include full metadata (contains labels and annotations)
     }
 
     # Calculate duration

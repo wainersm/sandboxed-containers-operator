@@ -297,10 +297,16 @@ def extract_trigger_source(prowjob_data: Dict) -> str:
     job_type = prowjob_data.get('type', '').lower()
     job_name = prowjob_data.get('job_name', '')
 
-    # Check for Konflux trigger
+    # Check metadata
     labels = prowjob_data.get('metadata', {}).get('labels', {})
     annotations = prowjob_data.get('metadata', {}).get('annotations', {})
 
+    # Check for Konflux trigger via gangway API
+    # Konflux-submitted jobs have these annotations even when they appear as periodic
+    if annotations.get('ci.openshift.io/executor') == 'gangway' and 'ci.openshift.io/konflux-repo' in annotations:
+        return 'konflux'
+
+    # Check for Konflux integration test label (older method)
     if 'prow.k8s.io/integration-test' in labels or 'konflux' in str(labels).lower():
         return 'konflux'
 
