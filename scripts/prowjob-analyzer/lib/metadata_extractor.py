@@ -212,29 +212,19 @@ def extract_build_info(prowjob_data: Dict) -> Dict:
         'catalog_source_image': catalog_image,
         'catalog_source_name': env_vars.get('CATALOG_SOURCE_NAME', ''),
         'expected_operator_version': env_vars.get('EXPECTED_OPERATOR_VERSION', ''),
-        'build_type': 'unknown',
     }
 
     # Parse catalog tag for version and timestamp
     catalog_info = parse_catalog_tag(catalog_image)
     build_info.update(catalog_info)
 
-    # Determine build type from catalog or job name
-    job_name = prowjob_data.get('job_name', '')
-
-    if 'candidate' in job_name or 'candidate' in catalog_image:
-        build_info['build_type'] = 'candidate'
-    elif 'brew' in catalog_image or 'brew-catalog' in job_name:
-        build_info['build_type'] = 'brew'
-    elif 'ga' in job_name or 'production' in job_name:
-        build_info['build_type'] = 'ga'
-
     # Determine release stage from job name
+    job_name = prowjob_data.get('job_name', '')
     build_info['release_stage'] = ''
     if 'downstream-candidate' in job_name:
-        build_info['release_stage'] = 'pre-GA'
+        build_info['release_stage'] = 'candidate'
     elif 'downstream-release' in job_name:
-        build_info['release_stage'] = 'GA'
+        build_info['release_stage'] = 'release'
 
     return build_info
 

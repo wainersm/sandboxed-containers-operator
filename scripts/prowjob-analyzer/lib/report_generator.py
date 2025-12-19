@@ -234,8 +234,6 @@ def generate_human_report(
     else:
         report += f"- **Expected Operator Version**: (not set)\n"
 
-    report += f"- **Build Type**: {metadata['build_type']}\n"
-
     # Test Results
     if test_results:
         report += generate_test_results_section(test_results, failure_analysis or {})
@@ -299,7 +297,6 @@ def generate_json_report(
             'kata_rpm_version': metadata.get('kata_rpm_version', 'unknown'),
             'kata_rpm_source': metadata.get('kata_rpm_source', 'unknown'),
             'variant': metadata['variant'],
-            'build_type': metadata['build_type'],
             'catalog_source_image': metadata.get('catalog_source_image', ''),
             'catalog_full_tag': metadata.get('full_tag', ''),
             'catalog_version': metadata.get('base_version', ''),
