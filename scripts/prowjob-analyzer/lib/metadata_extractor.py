@@ -150,6 +150,14 @@ def parse_catalog_tag(catalog_image: str) -> Dict:
     """
     Parse catalog image tag to extract version and timestamp.
 
+    Handles multiple tag formats:
+    - version-timestamp: 1.11.1-1765791442
+    - version with v prefix: v1.11.1
+    - plain version: 1.11.1
+    - latest: latest
+    - git SHA: abc123def456
+    - sha256 digest: sha256:41ca9598b816ddc784de8f345e7e586c2630747f2d10c1a45ad5e082ff228a1f
+
     Args:
         catalog_image: Full catalog image string (e.g., quay.io/.../osc-test-fbc:1.11.1-1765791442)
 
@@ -165,14 +173,34 @@ def parse_catalog_tag(catalog_image: str) -> Dict:
         'build_date': '',
     }
 
-    if not catalog_image or ':' not in catalog_image:
+    if not catalog_image:
+        return catalog_info
+
+    # Check if using digest format (with @)
+    if '@' in catalog_image:
+        # Format: quay.io/example@sha256:41ca9598b816ddc784de8f345e7e586c2630747f2d10c1a45ad5e082ff228a1f
+        tag = catalog_image.split('@')[-1]
+        catalog_info['full_tag'] = tag
+
+        # Extract hash without algorithm prefix (sha256:)
+        if ':' in tag:
+            algorithm, hash_value = tag.split(':', 1)
+            catalog_info['base_version'] = hash_value
+        else:
+            catalog_info['base_version'] = tag
+
+        catalog_info['build_date'] = 'unknown'
+        return catalog_info
+
+    # Check if using tag format (with :)
+    if ':' not in catalog_image:
         return catalog_info
 
     # Extract tag from image
     tag = catalog_image.split(':')[-1]
     catalog_info['full_tag'] = tag
 
-    # Parse version-timestamp format (e.g., "1.11.1-1765791442")
+    # Try version-timestamp format (e.g., "1.11.1-1765791442")
     match = re.match(r'^([\d.]+)-(\d+)$', tag)
     if match:
         catalog_info['base_version'] = match.group(1)
@@ -186,10 +214,37 @@ def parse_catalog_tag(catalog_image: str) -> Dict:
         except (ValueError, OSError) as e:
             logger.debug(f"Failed to convert timestamp {match.group(2)}: {e}")
             catalog_info['build_date'] = 'invalid-timestamp'
-    else:
-        # Tag might be just a version or "latest"
+        return catalog_info
+
+    # Try version with v prefix (e.g., "v1.11.1")
+    match = re.match(r'^v([\d.]+)$', tag)
+    if match:
+        catalog_info['base_version'] = match.group(1)
+        catalog_info['build_date'] = 'unknown'
+        return catalog_info
+
+    # Try plain version (e.g., "1.11.1")
+    match = re.match(r'^[\d.]+$', tag)
+    if match:
         catalog_info['base_version'] = tag
         catalog_info['build_date'] = 'unknown'
+        return catalog_info
+
+    # Check for "latest"
+    if tag == 'latest':
+        catalog_info['base_version'] = 'latest'
+        catalog_info['build_date'] = 'unknown'
+        return catalog_info
+
+    # Check for git SHA (40 hex characters for full SHA, or shorter for abbreviated)
+    if re.match(r'^[0-9a-f]{7,40}$', tag):
+        catalog_info['base_version'] = tag
+        catalog_info['build_date'] = 'unknown'
+        return catalog_info
+
+    # Default: unknown format, keep as-is
+    catalog_info['base_version'] = tag
+    catalog_info['build_date'] = 'unknown'
 
     return catalog_info
 

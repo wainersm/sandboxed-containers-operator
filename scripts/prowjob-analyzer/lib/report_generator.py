@@ -211,21 +211,35 @@ def generate_human_report(
 
     if metadata.get('catalog_source_image'):
         catalog = metadata['catalog_source_image']
+
+        # For digest format (@sha256:...), show only the image name without digest
+        if '@' in catalog:
+            catalog_display = catalog.split('@')[0]
+        else:
+            catalog_display = catalog
+
         # Shorten long catalog images
-        if len(catalog) > 80:
-            catalog = "..." + catalog[-77:]
-        report += f"- **Catalog Image**: `{catalog}`\n"
+        if len(catalog_display) > 80:
+            catalog_display = "..." + catalog_display[-77:]
+
+        report += f"- **Catalog Image**: `{catalog_display}`\n"
 
         # Display full tag if available
         if metadata.get('full_tag'):
             report += f"- **Catalog Tag**: `{metadata['full_tag']}`\n"
 
-            # Display base version and build date if available
+            # Display base version if available
             if metadata.get('base_version'):
                 report += f"- **Catalog Version**: {metadata['base_version']}\n"
 
-            if metadata.get('build_date') and metadata['build_date'] not in ['unknown', 'invalid-timestamp']:
-                report += f"- **Catalog Build Date**: {metadata['build_date']}\n"
+            # Always display build date
+            build_date = metadata.get('build_date', 'unknown')
+            if build_date == 'invalid-timestamp':
+                build_date = 'unknown'
+            if build_date == 'unknown':
+                report += f"- **Catalog Build Date**: Unknown\n"
+            else:
+                report += f"- **Catalog Build Date**: {build_date}\n"
 
     # Always show expected operator version, even if empty
     expected_ver = metadata.get('expected_operator_version', '')
