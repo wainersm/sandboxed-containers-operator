@@ -10,7 +10,7 @@ Analyze a Prow job to determine its status and provide detailed failure analysis
 
 **Workflow:**
 1. Run the main analyzer to get overall job status and metadata
-2. If the job failed during the test step with test failures, automatically run detailed test analysis on failing tests
+2. Based on which step failed, decide if further analysis is needed
 
 Execute the following steps:
 
@@ -21,20 +21,29 @@ python3 scripts/prowjob-analyzer/analyze.py --no-wait "$@"
 
 **Step 2: Analyze the output**
 - Review the analysis report from Step 1
-- Check the "Failure Location" section
-- Look for "Failed Tests" listed by category
+- Check the "Failure Analysis" section to see which step(s) failed
+- Check if there are "Failed Tests" listed
 
-**Step 3: If test failures detected**
-If the report shows:
-- Failure Location: `test_step`
-- Failed Tests are listed
+**Step 3: Determine next action based on failed step**
 
-Then run detailed test analysis:
+**Case A: Tests failed** (Failed Step is `openshift-extended-test` AND Failed Tests are listed)
+- This means the job ran through infrastructure setup and failed during test execution
+- Run detailed test analysis:
 ```bash
 python3 scripts/prowjob-analyzer/test_report.py <PROW_JOB_URL> <TEST_NAME_1> <TEST_NAME_2> ...
 ```
+Use the exact test names from the "Failed Tests" section.
 
-Use the exact test names from the "Failed Tests" section of the analyzer report.
+**Case B: Infrastructure/setup step failed** (Failed Step is NOT `openshift-extended-test`)
+- Examples: `ipi-install-install`, `sandboxed-containers-operator-peerpods-param-cm`, etc.
+- This means tests never ran - job failed before reaching the test step
+- Do NOT run test_report.py
+- Provide summary explaining that the job failed at infrastructure/setup stage
+- Point user to the specific step's artifacts for investigation
+
+**Case C: Multiple steps failed**
+- If `openshift-extended-test` is among the failed steps AND has failing tests, run test analysis
+- Otherwise, treat as Case B
 
 ---
 
@@ -45,16 +54,20 @@ Comprehensive Prow job analysis with two-level investigation:
 **Level 1: Overall Analysis** (analyze.py)
 - Extracts job metadata (provider, OCP version, Kata RPM, catalog, etc.)
 - Determines overall job status (pass/fail/timeout)
-- Identifies failure location (test step, prow step, infrastructure)
-- Lists failing tests with categorization
-- Detects common failure patterns
-- Determines if human intervention is needed
+- Identifies which step(s) failed
+- Lists failing tests if tests ran and failed
+- Provides links to all artifacts
 
-**Level 2: Detailed Test Debugging** (test_report.py - automatic for test failures)
-- Extracts error messages from build logs
+**Level 2: Detailed Test Debugging** (test_report.py - only when tests failed)
+- Only runs if `openshift-extended-test` step failed with failing tests
+- Extracts error messages from build logs for each failing test
 - Provides log context around each failure
 - Detects test-specific patterns (timeout, OOM, network, etc.)
 - Offers debugging hints based on detected patterns
+
+**Important:** If the job failed at an earlier step (like `ipi-install-install`),
+tests never ran and test analysis is not applicable. The analyzer will correctly
+identify which infrastructure/setup step failed.
 
 **Usage:**
 ```
@@ -68,9 +81,10 @@ Comprehensive Prow job analysis with two-level investigation:
 
 **Output:**
 - Comprehensive analysis report in markdown format
+- Identifies which step(s) failed
 - For test failures: Detailed debugging information for each failing test
+- For infrastructure failures: Guidance on which step failed and where to investigate
 - Links to all relevant artifacts
-- Human intervention assessment
 
 **Options:**
 - `--json`: Output machine-readable JSON format (for both scripts)
