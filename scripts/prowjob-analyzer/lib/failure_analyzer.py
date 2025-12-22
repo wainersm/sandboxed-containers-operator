@@ -9,7 +9,7 @@ import logging
 from typing import Dict, List, Optional
 from collections import defaultdict
 from .parser import categorize_test_by_name, extract_failing_tests
-from .fetcher import fetch_artifact
+from .fetcher import fetch_artifact, get_failed_steps
 
 logger = logging.getLogger(__name__)
 
@@ -62,16 +62,23 @@ FAILURE_PATTERNS = {
 }
 
 
-def identify_failure_location(prowjob_data: Dict, test_results: Optional[Dict]) -> str:
+def identify_failure_location(
+    prowjob_data: Dict,
+    test_results: Optional[Dict],
+    base_url: str,
+    variant: str
+) -> str:
     """
-    Identify where the failure occurred.
+    Identify which step(s) failed in the job.
 
     Args:
         prowjob_data: Parsed prowjob data
         test_results: Parsed test results (if available)
+        base_url: Base URL of Prow job
+        variant: Job variant
 
     Returns:
-        Failure location: 'test_step', 'prow_step', 'infrastructure', 'timeout', or 'unknown'
+        Name of failed step(s), comma-separated if multiple, or status like 'timeout'/'unknown'
     """
     state = prowjob_data.get('state', '').lower()
 
@@ -79,57 +86,26 @@ def identify_failure_location(prowjob_data: Dict, test_results: Optional[Dict]) 
     if 'timeout' in state or state == 'aborted':
         return 'timeout'
 
-    # Check if tests ran and failed
+    # Try to get actual failed steps from artifacts
+    if variant and variant != 'unknown':
+        failed_steps = get_failed_steps(base_url, variant)
+        if failed_steps:
+            # Return the actual step name(s)
+            return ', '.join(failed_steps)
+
+    # Fallback: if we can't determine from artifacts but have test failures
     if test_results:
         failures = test_results.get('failures', 0)
         if failures > 0:
-            return 'test_step'
+            return 'openshift-extended-test'
 
     # Check if it's a Prow infrastructure failure
     if state in ['error', 'errored']:
-        return 'prow_step'
-
-    # If we have a failure but no test results, likely a prow step failure
-    if state == 'failure' and not test_results:
-        return 'prow_step'
+        return 'infrastructure'
 
     return 'unknown'
 
 
-def get_failed_step_name(base_url: str, variant: str, prowjob_data: Dict) -> Optional[str]:
-    """
-    Try to identify which step failed by checking logs.
-
-    Args:
-        base_url: Base URL of Prow job
-        variant: Job variant
-        prowjob_data: Parsed prowjob data
-
-    Returns:
-        Name of failed step or None
-    """
-    # Common steps in OSC jobs
-    common_steps = [
-        'ipi-install',
-        'sandboxed-containers-operator-install',
-        'sandboxed-containers-operator-deploy-kataconfig',
-        'openshift-extended-test',
-        'sandboxed-containers-operator-gather-must-gather',
-        'sandboxed-containers-operator-peerpods-param-cm',
-    ]
-
-    # Check for step failure indicators in prowjob status
-    # This is a simplified check - real implementation might parse pod logs
-    for step in common_steps:
-        # Could fetch and check step logs here
-        pass
-
-    # For now, return the most likely culprit based on job type
-    workload = prowjob_data.get('env_vars', {}).get('WORKLOAD_TO_TEST', '')
-    if 'peerpod' in workload.lower():
-        return 'openshift-extended-test or peerpods-param-cm'
-    else:
-        return 'openshift-extended-test'
 
 
 def check_log_for_patterns(log_content: str) -> List[str]:
@@ -276,25 +252,26 @@ def analyze_failure(
     """
     analysis = {
         'failure_location': 'unknown',
-        'failed_step': None,
         'failing_tests': [],
         'failing_tests_by_category': {},
         'detected_patterns': [],
         'root_cause': {},
     }
 
-    # Identify failure location
-    analysis['failure_location'] = identify_failure_location(prowjob_data, test_results)
+    # Identify failure location (actual step name(s))
+    variant = metadata.get('variant', '')
+    analysis['failure_location'] = identify_failure_location(
+        prowjob_data,
+        test_results,
+        base_url,
+        variant
+    )
 
     # Get failing tests if available
     if test_results:
         failing_tests = extract_failing_tests(test_results)
         analysis['failing_tests'] = failing_tests
         analysis['failing_tests_by_category'] = categorize_failing_tests(test_results)
-
-    # Try to identify failed step for prow step failures
-    if analysis['failure_location'] == 'prow_step' and metadata.get('variant'):
-        analysis['failed_step'] = get_failed_step_name(base_url, metadata['variant'], prowjob_data)
 
     # Fetch and analyze logs for patterns
     variant = metadata.get('variant', '')

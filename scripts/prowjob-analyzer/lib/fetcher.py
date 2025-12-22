@@ -8,7 +8,7 @@ import re
 import time
 import json
 import logging
-from typing import Dict, Optional, Tuple
+from typing import Dict, Optional, Tuple, List
 from urllib.request import urlopen, Request
 from urllib.error import HTTPError, URLError
 
@@ -285,3 +285,71 @@ def get_artifact_url(base_url: str, artifact_path: str) -> str:
         Full URL to the artifact
     """
     return f"{base_url}/{artifact_path}"
+
+
+def get_step_directories(base_url: str, variant: str) -> List[str]:
+    """
+    Get list of step directories from artifacts.
+
+    Args:
+        base_url: Base URL of the Prow job
+        variant: Job variant (e.g., "aws-ipi-peerpods")
+
+    Returns:
+        List of step directory names
+    """
+    artifacts_url = f"{base_url}/artifacts/{variant}/"
+
+    try:
+        req = Request(artifacts_url, headers={'User-Agent': 'prowjob-analyzer/1.0'})
+        with urlopen(req, timeout=30) as response:
+            html_content = response.read().decode('utf-8', errors='ignore')
+
+            # Extract directory names from HTML listing
+            # Look for patterns like: href="step-name/"
+            pattern = r'href="([a-z0-9-]+)/"'
+            matches = re.findall(pattern, html_content)
+
+            # Filter out parent directory references and common non-step directories
+            step_dirs = [
+                m for m in matches
+                if m not in ['..', 'artifacts'] and not m.startswith('/')
+            ]
+
+            logger.debug(f"Found {len(step_dirs)} step directories in {variant}")
+            return step_dirs
+
+    except Exception as e:
+        logger.warning(f"Failed to get step directories: {e}")
+        return []
+
+
+def get_failed_steps(base_url: str, variant: str) -> List[str]:
+    """
+    Identify which steps failed by checking their finished.json files.
+
+    Args:
+        base_url: Base URL of the Prow job
+        variant: Job variant (e.g., "aws-ipi-peerpods")
+
+    Returns:
+        List of failed step names
+    """
+    step_dirs = get_step_directories(base_url, variant)
+    failed_steps = []
+
+    for step in step_dirs:
+        finished_path = f"artifacts/{variant}/{step}/finished.json"
+        finished_data = fetch_json_artifact(base_url, finished_path)
+
+        if finished_data:
+            # Check if step failed
+            passed = finished_data.get('passed', True)
+            result = finished_data.get('result', '').upper()
+
+            if not passed or result == 'FAILURE':
+                failed_steps.append(step)
+                logger.debug(f"Step {step} failed: passed={passed}, result={result}")
+
+    logger.debug(f"Found {len(failed_steps)} failed steps: {failed_steps}")
+    return failed_steps

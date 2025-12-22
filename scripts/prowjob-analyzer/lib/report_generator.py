@@ -85,19 +85,17 @@ def generate_failure_analysis_section(failure_analysis: Dict, base_url: str, var
 
     section = "\n## Failure Analysis\n\n"
 
-    # Failure location
+    # Failure location (now shows actual step name(s))
     location = failure_analysis.get('failure_location', 'unknown')
-    section += f"**Failure Location**: {location}\n\n"
+    section += f"**Failed Step(s)**: `{location}`\n\n"
 
-    if location == 'test_step':
-        section += "The job failed during the automated test execution step.\n\n"
-    elif location == 'prow_step':
-        failed_step = failure_analysis.get('failed_step', 'unknown step')
-        section += f"The job failed during a Prow orchestration step: `{failed_step}`\n\n"
-    elif location == 'timeout':
+    # Add context based on location
+    if location == 'timeout':
         section += "The job exceeded its execution timeout.\n\n"
     elif location == 'infrastructure':
         section += "The job failed due to infrastructure issues.\n\n"
+    elif location == 'unknown':
+        section += "Could not determine which step failed.\n\n"
 
     # Detected patterns
     patterns = failure_analysis.get('detected_patterns', [])
@@ -328,8 +326,7 @@ def generate_json_report(
         failing_tests = failure_analysis.get('failing_tests', [])
 
         report['failure_analysis'] = {
-            'failure_location': failure_analysis.get('failure_location', 'unknown'),
-            'failed_step': failure_analysis.get('failed_step'),
+            'failed_steps': failure_analysis.get('failure_location', 'unknown'),
             'failing_tests': [
                 {
                     'name': test.get('name', ''),
