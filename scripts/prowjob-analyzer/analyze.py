@@ -114,7 +114,9 @@ def analyze_prowjob(url: str, wait_timeout: int = 300) -> Optional[dict]:
         logger.info("Analyzing failure...")
         failure_analysis = analyze_failure(prowjob_data, base_url, test_results, metadata)
         logger.info(f"Failure location: {failure_analysis.get('failure_location')}")
-        logger.info(f"Human intervention needed: {failure_analysis.get('needs_human')}")
+        logger.info(f"Failed step: {failure_analysis.get('failed_step')}")
+        logger.info(f"Failing tests: {len(failure_analysis.get('failing_tests', []))}")
+        logger.info(f"Detected patterns: {failure_analysis.get('detected_patterns')}")
 
     return {
         'prowjob_data': prowjob_data,

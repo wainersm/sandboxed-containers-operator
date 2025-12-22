@@ -10,7 +10,7 @@ __version__ = "1.0.0"
 from .fetcher import parse_prow_url, fetch_artifact, wait_for_artifacts
 from .parser import parse_prowjob, parse_test_results, get_job_status
 from .metadata_extractor import extract_metadata
-from .failure_analyzer import analyze_failure, needs_human_intervention
+from .failure_analyzer import analyze_failure
 from .report_generator import generate_human_report, generate_json_report
 
 __all__ = [
@@ -22,7 +22,6 @@ __all__ = [
     "get_job_status",
     "extract_metadata",
     "analyze_failure",
-    "needs_human_intervention",
     "generate_human_report",
     "generate_json_report",
 ]

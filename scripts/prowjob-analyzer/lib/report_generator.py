@@ -28,14 +28,6 @@ def format_status_emoji(status: str) -> str:
     return status_emojis.get(status.lower(), '❓')
 
 
-def format_human_intervention(needs_human: bool) -> str:
-    """Format human intervention requirement."""
-    if needs_human:
-        return '✅ Yes - Manual investigation needed'
-    else:
-        return '⏸️ No - Safe to retry (likely transient issue)'
-
-
 def generate_test_results_section(test_results: Dict, failure_analysis: Dict) -> str:
     """Generate test results section for report."""
     if not test_results:
@@ -256,11 +248,6 @@ def generate_human_report(
     if status != 'success' and failure_analysis:
         report += generate_failure_analysis_section(failure_analysis, base_url, metadata.get('variant', ''))
 
-        # Human intervention
-        report += "\n## Human Intervention Required\n\n"
-        needs_human = failure_analysis.get('needs_human', True)
-        report += format_human_intervention(needs_human) + "\n"
-
     # Artifacts
     report += generate_artifacts_section(base_url, metadata.get('variant', ''), test_results is not None)
 
@@ -356,7 +343,6 @@ def generate_json_report(
             ],
             'detected_patterns': failure_analysis.get('detected_patterns', []),
             'root_cause': failure_analysis.get('root_cause', {}),
-            'needs_human_intervention': failure_analysis.get('needs_human', True),
         }
 
     # Artifacts

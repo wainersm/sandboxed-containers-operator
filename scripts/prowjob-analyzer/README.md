@@ -4,7 +4,7 @@ A tool for analyzing OpenShift Prow job results, specifically tailored for OpenS
 
 ## Overview
 
-The Prow Job Analyzer provides comprehensive analysis of Prow job runs, extracting metadata, determining pass/fail status, and identifying failure locations and root causes. It's designed to help determine if human intervention is needed or if issues are transient and safe to retry.
+The Prow Job Analyzer provides comprehensive analysis of Prow job runs, extracting metadata, determining pass/fail status, and identifying failure locations and root causes.
 
 ## Features
 
@@ -13,7 +13,6 @@ The Prow Job Analyzer provides comprehensive analysis of Prow job runs, extracti
 - **Failure Analysis**: Identifies where failures occurred (test step, prow step, infrastructure) and categorizes failing tests
 - **Pattern Recognition**: Detects common failure patterns (timeouts, OOM, network issues, etc.)
 - **Root Cause Analysis**: Attempts to determine the likely cause of failures with confidence levels
-- **Human Intervention Detection**: Uses heuristics to determine if automated retry is safe or if manual investigation is needed
 - **Multiple Output Formats**: Generates both human-readable markdown and machine-parsable JSON reports
 - **In-Progress Job Handling**: Can wait for running jobs to complete before analysis
 
@@ -67,7 +66,6 @@ The default output is a comprehensive markdown report including:
 - **Environment**: Provider, OCP version, workload type, Kata RPM version, build information
 - **Test Results**: Total, passed, failed, and skipped test counts with categorized failure breakdown
 - **Failure Analysis**: Failure location, detected patterns, root cause, and suggested actions
-- **Human Intervention**: Clear indication of whether manual investigation is needed
 - **Artifacts**: Direct links to all relevant artifacts (test results, logs, must-gather data)
 
 ### JSON Report
@@ -106,7 +104,7 @@ prowjob-analyzer/
 1. **Fetcher**: Handles URL parsing, artifact downloading with retry logic, and waiting for in-progress jobs
 2. **Parser**: Parses prowjob.json and test-results.yaml, determines job status
 3. **Metadata Extractor**: Extracts provider, OCP version, workload type, Kata RPM version from job data
-4. **Failure Analyzer**: Identifies failure location, categorizes tests, detects patterns, determines human intervention need
+4. **Failure Analyzer**: Identifies failure location, categorizes tests, detects patterns, and performs root cause analysis
 5. **Report Generator**: Formats analysis results into human-readable or machine-parsable output
 
 ## Requirements
@@ -158,7 +156,7 @@ Output:
 ./analyze.py https://prow.ci.openshift.org/view/gs/test-platform-results/logs/periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate-azure-ipi-kata/1998111457991987200
 ```
 
-Output will include failure analysis with categorized failing tests, detected patterns, and human intervention recommendation.
+Output will include failure analysis with categorized failing tests, detected patterns, and root cause analysis.
 
 ### Presubmit/Rehearsal Job
 

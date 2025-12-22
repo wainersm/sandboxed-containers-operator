@@ -1,7 +1,7 @@
 """
 Failure Analyzer Module
 
-Analyzes failures to identify location, patterns, and determine if human intervention is needed.
+Analyzes failures to identify location, patterns, and root causes.
 """
 
 import re
@@ -256,53 +256,6 @@ def determine_root_cause(failing_tests: List[Dict], detected_patterns: List[str]
     return root_cause
 
 
-def needs_human_intervention(
-    failure_location: str,
-    failing_tests: List[Dict],
-    detected_patterns: List[str],
-    root_cause: Dict
-) -> bool:
-    """
-    Determine if human intervention is needed or if automated retry is sufficient.
-
-    Args:
-        failure_location: Where the failure occurred
-        failing_tests: List of failing tests
-        detected_patterns: Detected failure patterns
-        root_cause: Root cause analysis
-
-    Returns:
-        True if human intervention needed, False if safe to retry
-    """
-    # Infrastructure/timeout issues might be safe to retry
-    if failure_location in ['timeout', 'infrastructure', 'prow_step']:
-        # Unless there are specific patterns indicating configuration issues
-        if 'quota' in detected_patterns or 'image_pull' in detected_patterns:
-            return True
-        return False  # Safe to retry
-
-    # Test failures usually need human review
-    if failure_location == 'test_step':
-        # Check if it's a known transient issue
-        if detected_patterns == ['network'] or detected_patterns == ['timeout']:
-            return False  # Might be transient, safe to retry
-
-        # Configuration issues need human intervention
-        if any('version' in test['name'].lower() for test in failing_tests):
-            return True
-
-        # Multiple test failures likely need review
-        if len(failing_tests) > 5:
-            return True
-
-        # Single test failure might be worth reviewing
-        if len(failing_tests) == 1 and root_cause['confidence'] != 'high':
-            return True
-
-    # If we're not sure, err on the side of human review
-    return True
-
-
 def analyze_failure(
     prowjob_data: Dict,
     base_url: str,
@@ -328,7 +281,6 @@ def analyze_failure(
         'failing_tests_by_category': {},
         'detected_patterns': [],
         'root_cause': {},
-        'needs_human': True,
     }
 
     # Identify failure location
@@ -366,14 +318,6 @@ def analyze_failure(
         analysis['failing_tests'],
         analysis['detected_patterns'],
         metadata
-    )
-
-    # Determine if human intervention needed
-    analysis['needs_human'] = needs_human_intervention(
-        analysis['failure_location'],
-        analysis['failing_tests'],
-        analysis['detected_patterns'],
-        analysis['root_cause']
     )
 
     return analysis
