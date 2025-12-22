@@ -89,32 +89,13 @@ def generate_failure_analysis_section(failure_analysis: Dict, base_url: str, var
     location = failure_analysis.get('failure_location', 'unknown')
     section += f"**Failed Step(s)**: `{location}`\n\n"
 
-    # Add context based on location
+    # Add context based on special statuses
     if location == 'timeout':
         section += "The job exceeded its execution timeout.\n\n"
     elif location == 'infrastructure':
         section += "The job failed due to infrastructure issues.\n\n"
     elif location == 'unknown':
         section += "Could not determine which step failed.\n\n"
-
-    # Detected patterns
-    patterns = failure_analysis.get('detected_patterns', [])
-    if patterns:
-        section += "**Detected Patterns**: " + ", ".join(patterns) + "\n\n"
-
-    # Root cause
-    root_cause = failure_analysis.get('root_cause', {})
-    if root_cause.get('likely_cause'):
-        section += f"**Likely Cause**: {root_cause['likely_cause']}\n\n"
-        section += f"**Confidence**: {root_cause['confidence']}\n\n"
-
-    # Suggested actions
-    suggested_actions = root_cause.get('suggested_actions', [])
-    if suggested_actions:
-        section += "### Suggested Actions\n\n"
-        for action in suggested_actions:
-            section += f"- {action}\n"
-        section += "\n"
 
     return section
 

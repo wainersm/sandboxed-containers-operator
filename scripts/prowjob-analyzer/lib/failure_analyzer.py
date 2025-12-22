@@ -71,6 +71,11 @@ def identify_failure_location(
     """
     Identify which step(s) failed in the job.
 
+    Logic:
+    - If test-results.yaml doesn't exist: tests didn't run, job failed before tests
+    - If test-results.yaml exists with failures > 0: job failed at test execution
+    - We rely on finished.json in each step's artifacts to determine which steps failed
+
     Args:
         prowjob_data: Parsed prowjob data
         test_results: Parsed test results (if available)
@@ -90,19 +95,18 @@ def identify_failure_location(
     if state in ['error', 'errored']:
         return 'infrastructure'
 
-    # Try to get actual failed steps from artifacts
+    # Get actual failed steps from artifacts by checking each step's finished.json
     if variant and variant != 'unknown':
         failed_steps = get_failed_steps(base_url, variant)
+
         if failed_steps:
-            # Return the actual step name(s)
+            # Return only the steps that actually failed
             return ', '.join(failed_steps)
         else:
-            # If we couldn't detect failed steps but job failed, indicate that
+            # No failed steps detected from artifacts
+            # This can happen if we can't parse the artifacts properly
             if state == 'failure':
-                logger.warning(f"Job failed but no failed steps detected in artifacts")
-                # If we have test results with failures, we know at least that step ran
-                if test_results and test_results.get('failures', 0) > 0:
-                    return 'openshift-extended-test'
+                logger.warning("Job failed but couldn't detect failed steps from artifacts")
                 return 'unknown'
 
     # If variant is unknown, we can't check step artifacts
