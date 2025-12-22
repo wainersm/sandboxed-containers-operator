@@ -301,26 +301,44 @@ def get_step_directories(base_url: str, variant: str) -> List[str]:
     artifacts_url = f"{base_url}/artifacts/{variant}/"
 
     try:
+        logger.debug(f"Fetching step directories from {artifacts_url}")
         req = Request(artifacts_url, headers={'User-Agent': 'prowjob-analyzer/1.0'})
         with urlopen(req, timeout=30) as response:
+            content_type = response.headers.get('Content-Type', '')
             html_content = response.read().decode('utf-8', errors='ignore')
+            logger.debug(f"Fetched {len(html_content)} bytes, content-type: {content_type}")
+
+            # Check if we got HTML redirect page instead of directory listing
+            if 'text/html' in content_type and 'gcsweb' not in html_content[:1000]:
+                logger.debug("Got Prow HTML page, discovering GCS URL...")
+                gcs_url = discover_gcs_url_from_prow(artifacts_url)
+                if gcs_url:
+                    logger.debug(f"Retrying with GCS URL: {gcs_url}")
+                    req = Request(gcs_url, headers={'User-Agent': 'prowjob-analyzer/1.0'})
+                    with urlopen(req, timeout=30) as gcs_response:
+                        html_content = gcs_response.read().decode('utf-8', errors='ignore')
+                        logger.debug(f"Fetched {len(html_content)} bytes from GCS")
 
             # Extract directory names from HTML listing
-            # Look for patterns like: href="step-name/"
-            pattern = r'href="([a-z0-9-]+)/"'
+            # Pattern: href="/gcs/.../artifacts/{variant}/STEP_NAME/"
+            # We want to extract just the STEP_NAME part
+            pattern = rf'href="[^"]*/{variant}/([a-z0-9-]+)/"'
             matches = re.findall(pattern, html_content)
+            logger.debug(f"Regex pattern matched {len(matches)} times")
 
-            # Filter out parent directory references and common non-step directories
-            step_dirs = [
-                m for m in matches
-                if m not in ['..', 'artifacts'] and not m.startswith('/')
-            ]
+            # Remove duplicates and filter out parent directory references
+            step_dirs = []
+            seen = set()
+            for m in matches:
+                if m not in seen and m not in ['..', 'artifacts']:
+                    step_dirs.append(m)
+                    seen.add(m)
 
-            logger.debug(f"Found {len(step_dirs)} step directories in {variant}")
+            logger.debug(f"Found {len(step_dirs)} step directories in {variant}: {step_dirs[:5]}")
             return step_dirs
 
     except Exception as e:
-        logger.warning(f"Failed to get step directories: {e}")
+        logger.warning(f"Failed to get step directories from {artifacts_url}: {e}")
         return []
 
 

@@ -86,23 +86,26 @@ def identify_failure_location(
     if 'timeout' in state or state == 'aborted':
         return 'timeout'
 
+    # Check if it's a Prow infrastructure failure
+    if state in ['error', 'errored']:
+        return 'infrastructure'
+
     # Try to get actual failed steps from artifacts
     if variant and variant != 'unknown':
         failed_steps = get_failed_steps(base_url, variant)
         if failed_steps:
             # Return the actual step name(s)
             return ', '.join(failed_steps)
+        else:
+            # If we couldn't detect failed steps but job failed, indicate that
+            if state == 'failure':
+                logger.warning(f"Job failed but no failed steps detected in artifacts")
+                # If we have test results with failures, we know at least that step ran
+                if test_results and test_results.get('failures', 0) > 0:
+                    return 'openshift-extended-test'
+                return 'unknown'
 
-    # Fallback: if we can't determine from artifacts but have test failures
-    if test_results:
-        failures = test_results.get('failures', 0)
-        if failures > 0:
-            return 'openshift-extended-test'
-
-    # Check if it's a Prow infrastructure failure
-    if state in ['error', 'errored']:
-        return 'infrastructure'
-
+    # If variant is unknown, we can't check step artifacts
     return 'unknown'
 
 
