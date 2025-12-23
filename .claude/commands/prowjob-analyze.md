@@ -3,7 +3,7 @@ name: prowjob-analyze
 description: Analyze OpenShift Prow job results to determine status, extract metadata, and identify failures
 allowed-tools:
   - Bash(python3 scripts/prowjob-analyzer/analyze.py:*)
-  - Bash(python3 scripts/prowjob-analyzer/test_report.py:*)
+  - Bash(python3 scripts/prowjob-analyzer/failed_tests_report.py:*)
 ---
 
 Analyze a Prow job to determine its status and provide detailed failure analysis.
@@ -30,14 +30,14 @@ python3 scripts/prowjob-analyzer/analyze.py --no-wait "$@"
 - This means the job ran through infrastructure setup and failed during test execution
 - Run detailed test analysis:
 ```bash
-python3 scripts/prowjob-analyzer/test_report.py <PROW_JOB_URL> <TEST_NAME_1> <TEST_NAME_2> ...
+python3 scripts/prowjob-analyzer/failed_tests_report.py <PROW_JOB_URL> <TEST_NAME_1> <TEST_NAME_2> ...
 ```
 Use the exact test names from the "Failed Tests" section.
 
 **Case B: Infrastructure/setup step failed** (Failed Step is NOT `openshift-extended-test`)
 - Examples: `ipi-install-install`, `sandboxed-containers-operator-peerpods-param-cm`, etc.
 - This means tests never ran - job failed before reaching the test step
-- Do NOT run test_report.py
+- Do NOT run failed_tests_report.py
 - Provide summary explaining that the job failed at infrastructure/setup stage
 - Point user to the specific step's artifacts for investigation
 
@@ -58,12 +58,12 @@ Comprehensive Prow job analysis with two-level investigation:
 - Lists failing tests if tests ran and failed
 - Provides links to all artifacts
 
-**Level 2: Detailed Test Debugging** (test_report.py - only when tests failed)
+**Level 2: Detailed Test Debugging** (failed_tests_report.py - only when tests failed)
 - Only runs if `openshift-extended-test` step failed with failing tests
-- Extracts error messages from build logs for each failing test
-- Provides log context around each failure
-- Detects test-specific patterns (timeout, OOM, network, etc.)
-- Offers debugging hints based on detected patterns
+- Extracts full test logs and failure summaries from build-log.txt
+- Reports test metadata: elapsed time, category, author, priority
+- Provides complete log context for each failing test
+- Supports filtering specific tests by name or ID
 
 **Important:** If the job failed at an earlier step (like `ipi-install-install`),
 tests never ran and test analysis is not applicable. The analyzer will correctly
