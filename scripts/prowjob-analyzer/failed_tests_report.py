@@ -83,59 +83,43 @@ def extract_test_logs_from_build_log(build_log_content: str, test_name: str) -> 
         logger.warning(f"Could not find end of test logs for: {test_name}")
         # Use remaining content if we found the start
         end_idx = len(lines) - 1
-    
+
+    # Extract elapsed time from the failed line
+    # Pattern: failed: (10m13s) 2025-11-11T00:01:49 "{test name}"
+    elapsed_time = "unknown"
+    if end_idx is not None and end_idx < len(lines):
+        end_line = lines[end_idx]
+        elapsed_match = re.search(r'failed:\s*\(([^)]+)\)', end_line, re.IGNORECASE)
+        if elapsed_match:
+            elapsed_time = elapsed_match.group(1)
+
     # Extract full test logs
     full_logs_lines = lines[start_idx:end_idx + 1]
     full_logs = '\n'.join(full_logs_lines)
-    
+
     # Extract failure summary from full logs
     # Find "Summarizing {N} Failure" and extract until end, excluding timestamp lines
     failure_summary_lines = []
     in_summary = False
-    
+
     for line in full_logs_lines:
         if re.search(r'Summarizing \d+ Failure', line):
             in_summary = True
             continue
-        
+
         if in_summary:
             # Skip lines that start with timestamp pattern (e.g., "Dec 08 15:20:36.914")
             if re.match(r'^[A-Z][a-z]{2} \d{2} \d{2}:\d{2}:\d{2}\.\d{3}', line):
                 continue
             failure_summary_lines.append(line)
-    
+
     failure_summary = '\n'.join(failure_summary_lines).strip()
-    
+
     return {
         'full_logs': full_logs,
-        'failure_summary': failure_summary
+        'failure_summary': failure_summary,
+        'elapsed_time': elapsed_time
     }
-
-
-def extract_elapsed_time(build_log_content: str, test_name: str) -> str:
-    """
-    Extract elapsed time for a test from the failure line.
-
-    Args:
-        build_log_content: Content of build-log.txt
-        test_name: Name of the test
-
-    Returns:
-        Elapsed time string (e.g., "3.245 seconds") or "unknown"
-    """
-    escaped_test = re.escape(test_name)
-    
-    # Pattern: failed: [3.245 seconds] ... "{test name}"
-    # or: • [FAILED] [3.244 seconds]
-    pattern1 = rf'failed:\s*\[([^\]]+)\].*"{escaped_test}"'
-    pattern2 = rf'\[FAILED\]\s*\[([^\]]+)\].*{escaped_test}'
-    
-    for pattern in [pattern1, pattern2]:
-        match = re.search(pattern, build_log_content, re.IGNORECASE)
-        if match:
-            return match.group(1)
-    
-    return "unknown"
 
 
 def analyze_failed_tests(
@@ -219,22 +203,19 @@ def analyze_failed_tests(
         
         # Extract test logs
         test_logs = extract_test_logs_from_build_log(build_log_text, test_name)
-        
+
         if not test_logs:
             logger.warning(f"Could not extract logs for test: {test_name}")
-            test_logs = {'full_logs': '', 'failure_summary': ''}
-        
-        # Extract elapsed time
-        elapsed_time = extract_elapsed_time(build_log_text, test_name)
-        
+            test_logs = {'full_logs': '', 'failure_summary': '', 'elapsed_time': 'unknown'}
+
         # Parse test case info (already done in extract_failing_tests, but get it again)
         test_info = parse_test_case_info(test_name)
         category = categorize_test_by_name(test_name)
-        
+
         result = {
             'test_name': test_name,
             'test_case_number': test_info['test_case_number'],
-            'elapsed_time': elapsed_time,
+            'elapsed_time': test_logs['elapsed_time'],
             'category': category,
             'author': test_info['author'],
             'priority': test_info['priority'],
