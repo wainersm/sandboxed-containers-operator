@@ -24,6 +24,7 @@ def extract_provider(job_name: str) -> str:
         Provider name (aws, azure, gcp, etc.) or 'unknown'
     """
     providers = {
+        'aro': 'Aro',
         'aws': 'AWS',
         'azure': 'Azure',
         'gcp': 'GCP',

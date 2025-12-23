@@ -87,15 +87,15 @@ def extract_variant_from_job_name(job_name: str) -> Optional[str]:
     """
     # Look for known patterns in OSC job names
     # Pattern: ...downstream-candidate-{VARIANT}
-    pattern = r'downstream-candidate-(.+)$'
+    pattern = r'downstream-candidate([0-9]+)?-(.+)$'
     match = re.search(pattern, job_name)
 
     if match:
-        return match.group(1)
+        return match.group(2)
 
     # Try alternative patterns for other job types
     # Pattern: ...{provider}-ipi-{workload}
-    providers = ['aws', 'azure', 'gcp', 'ibmcloud', 'vsphere']
+    providers = ['aro', 'aws', 'azure', 'gcp', 'ibmcloud', 'vsphere']
     for provider in providers:
         pattern = f'({provider}-ipi-[^-]+)'
         match = re.search(pattern, job_name)
