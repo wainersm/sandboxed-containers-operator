@@ -346,6 +346,9 @@ def get_failed_steps(base_url: str, variant: str) -> List[str]:
     """
     Identify which steps failed by checking their finished.json files.
 
+    Special handling for openshift-extended-test: Also checks test-results.yaml
+    since this step may report as passed even when tests failed.
+
     Args:
         base_url: Base URL of the Prow job
         variant: Job variant (e.g., "aws-ipi-peerpods")
@@ -361,11 +364,32 @@ def get_failed_steps(base_url: str, variant: str) -> List[str]:
         finished_data = fetch_json_artifact(base_url, finished_path)
 
         if finished_data:
-            # Check if step failed
+            # Check if step failed according to finished.json
             passed = finished_data.get('passed', True)
             result = finished_data.get('result', '').upper()
 
-            if not passed or result == 'FAILURE':
+            step_failed = not passed or result == 'FAILURE'
+
+            # Special case: openshift-extended-test may report as passed
+            # even when tests failed. Check test-results.yaml to be sure.
+            if step == 'openshift-extended-test' and not step_failed:
+                test_results_path = f"artifacts/{variant}/{step}/artifacts/test-results.yaml"
+                test_results_content = fetch_artifact(base_url, test_results_path)
+
+                if test_results_content:
+                    # Import here to avoid circular dependency
+                    from .parser import parse_test_results
+
+                    test_results = parse_test_results(test_results_content)
+                    if test_results:
+                        failures = test_results.get('failures', 0)
+                        errors = test_results.get('errors', 0)
+
+                        if failures > 0 or errors > 0:
+                            step_failed = True
+                            logger.debug(f"Step {step} has test failures: failures={failures}, errors={errors}")
+
+            if step_failed:
                 failed_steps.append(step)
                 logger.debug(f"Step {step} failed: passed={passed}, result={result}")
 
