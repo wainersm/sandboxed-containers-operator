@@ -171,9 +171,25 @@ def fetch_artifact(base_url: str, artifact_path: str, max_retries: int = 3) -> O
                         logger.debug(f"Retrying with discovered GCS URL: {gcs_url}")
                         req = Request(gcs_url, headers={'User-Agent': 'prowjob-analyzer/1.0'})
                         with urlopen(req, timeout=30) as gcs_response:
+                            gcs_content_type = gcs_response.headers.get('Content-Type', '')
                             content = gcs_response.read()
+
+                            # If we still got HTML from GCS, the file doesn't exist
+                            if 'text/html' in gcs_content_type:
+                                logger.debug(f"GCS also returned HTML - artifact not found")
+                                return None
+
                             logger.debug(f"Successfully fetched from GCS ({len(content)} bytes)")
                             return content
+                    else:
+                        # Could not discover GCS URL and got HTML - file doesn't exist
+                        logger.debug(f"Could not discover GCS URL - artifact not found")
+                        return None
+
+                # If we got HTML after retry or without Prow redirect, file doesn't exist
+                if 'text/html' in content_type:
+                    logger.debug(f"Got HTML response - artifact not found")
+                    return None
 
                 logger.debug(f"Successfully fetched {url} ({len(content)} bytes)")
                 return content
