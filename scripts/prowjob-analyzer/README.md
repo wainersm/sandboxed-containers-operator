@@ -8,13 +8,28 @@ The Prow Job Analyzer provides comprehensive analysis of Prow job runs, extracti
 
 ## Features
 
+### Two-Level Analysis System
+
+**Level 1: Overall Job Analysis** (`analyze.py`):
 - **Metadata Extraction**: Automatically extracts provider, OCP version, workload type, Kata RPM version, and build information
 - **Status Determination**: Accurately determines if a job passed, failed, timed out, or encountered errors
-- **Failure Analysis**: Identifies where failures occurred (test step, prow step, infrastructure) and categorizes failing tests
-- **Pattern Recognition**: Detects common failure patterns (timeouts, OOM, network issues, etc.)
-- **Root Cause Analysis**: Attempts to determine the likely cause of failures with confidence levels
+- **Failed Step Detection**: Identifies which actual Prow step(s) failed by checking each step's finished.json
+- **Test Summary**: Lists failing tests if tests executed
 - **Multiple Output Formats**: Generates both human-readable markdown and machine-parsable JSON reports
 - **In-Progress Job Handling**: Can wait for running jobs to complete before analysis
+
+**Level 2: Detailed Test Analysis** (`failed_tests_report.py`):
+- **Full Test Logs**: Extracts complete test execution logs from build-log.txt
+- **Failure Summaries**: Parses "Summarizing N Failure" sections for each test
+- **Test Metadata**: Reports test case ID, author, priority, elapsed time, category
+- **Selective Analysis**: Can analyze specific tests by name or test all failed tests
+- **Pattern Recognition**: Helps identify common failure patterns (timeouts, OOM, network issues, etc.)
+
+### Claude Code Integration
+
+- **Intelligent Workflow**: Automatically determines if tests ran or infrastructure failed
+- **Smart Decision**: Runs detailed test analysis only when appropriate (Case A vs Case B)
+- **Interactive & Non-Interactive**: Supports both quick analysis and deeper investigation modes
 
 ## Usage
 
@@ -59,8 +74,9 @@ The analyzer supports both job URL patterns:
 
 ### Direct CLI Usage
 
-You can also run the analyzer directly:
+You can also run the analyzer scripts directly:
 
+**Level 1: Overall Analysis**
 ```bash
 # Basic usage
 ./analyze.py <PROW_JOB_URL>
@@ -75,16 +91,36 @@ You can also run the analyzer directly:
 ./analyze.py --wait 600 <PROW_JOB_URL>
 ```
 
+**Level 2: Detailed Test Analysis** (only when tests failed)
+```bash
+# Analyze all failed tests
+./failed_tests_report.py <PROW_JOB_URL>
+
+# Analyze specific tests by name or ID
+./failed_tests_report.py <PROW_JOB_URL> "C00077" "C00349"
+
+# Full test names work too
+./failed_tests_report.py <PROW_JOB_URL> "[sig-kata] Author:vvoronko-High-C00349-deploy peerpod with non-existing image annotation [Serial]"
+
+# JSON output
+./failed_tests_report.py --json <PROW_JOB_URL> > test-report.json
+```
+
 ### Options
 
+**analyze.py:**
 - `--json`: Output machine-readable JSON format instead of human-readable markdown
 - `--verbose, -v`: Enable verbose logging for debugging
 - `--wait SECONDS`: Set timeout for waiting for in-progress jobs (default: 300 seconds)
 - `--no-wait`: Don't wait for in-progress jobs (analyze immediately)
 
+**failed_tests_report.py:**
+- `--json`: Output machine-readable JSON format
+- `--verbose, -v`: Enable verbose logging for debugging
+
 ## Output
 
-### Human-Readable Report
+### Level 1: Overall Job Analysis Report (analyze.py)
 
 The default output is a comprehensive markdown report including:
 
@@ -92,13 +128,25 @@ The default output is a comprehensive markdown report including:
 - **Job Overview**: Job name, build ID, duration, trigger source
 - **Environment**: Provider, OCP version, workload type, Kata RPM version, build information
 - **Test Results**: Total, passed, failed, and skipped test counts with categorized failure breakdown
-- **Failure Analysis**: Failure location, detected patterns, root cause, and suggested actions
+- **Failure Analysis**: Which step(s) actually failed (e.g., `openshift-extended-test`, `ipi-install-install`)
+- **Failed Tests**: List of tests that failed (grouped by category) with test IDs, authors, and priorities
 - **Artifacts**: Direct links to all relevant artifacts (test results, logs, must-gather data)
 
-### JSON Report
+### Level 2: Detailed Test Report (failed_tests_report.py)
 
-With `--json` flag, outputs a structured JSON report suitable for automation and further processing:
+Per-test detailed analysis including:
 
+- **Test Identification**: Test case ID (e.g., C00349), author, priority
+- **Execution Details**: Elapsed time, category
+- **Failure Summary**: Extracted error messages and failure reasons
+- **Full Test Logs**: Complete test execution logs from start to failure
+- Supports analyzing all failed tests or specific tests by name/ID
+
+### JSON Reports
+
+Both scripts support `--json` flag for structured output suitable for automation:
+
+**analyze.py JSON:**
 ```json
 {
   "version": "1.0",
@@ -106,8 +154,31 @@ With `--json` flag, outputs a structured JSON report suitable for automation and
   "prowjob": {...},
   "metadata": {...},
   "test_results": {...},
-  "failure_analysis": {...},
+  "failure_analysis": {
+    "failed_steps": "openshift-extended-test",
+    "failing_tests": [...]
+  },
   "artifacts": {...}
+}
+```
+
+**failed_tests_report.py JSON:**
+```json
+{
+  "job_url": "...",
+  "tests_analyzed": 2,
+  "failed_tests": [
+    {
+      "test_name": "...",
+      "test_case_number": "C00349",
+      "elapsed_time": "10m13s",
+      "category": "peer_pods",
+      "author": "vvoronko",
+      "priority": "High",
+      "failure_summary": "...",
+      "full_logs": "..."
+    }
+  ]
 }
 ```
 
@@ -117,22 +188,55 @@ The analyzer is built with a modular architecture:
 
 ```
 prowjob-analyzer/
-├── analyze.py                  # Main orchestrator script
+├── analyze-claude.py           # Claude launcher wrapper script
+├── analyze.py                  # Level 1: Overall job analysis
+├── failed_tests_report.py      # Level 2: Detailed test analysis
 └── lib/                        # Analysis modules
     ├── fetcher.py             # Artifact fetching and URL parsing
     ├── parser.py              # prowjob.json and test-results.yaml parsing
     ├── metadata_extractor.py  # Metadata extraction
-    ├── failure_analyzer.py    # Failure analysis and pattern recognition
+    ├── failure_analyzer.py    # Failure step detection and test categorization
     └── report_generator.py    # Report generation (markdown/JSON)
 ```
 
 ### Key Components
 
-1. **Fetcher**: Handles URL parsing, artifact downloading with retry logic, and waiting for in-progress jobs
-2. **Parser**: Parses prowjob.json and test-results.yaml, determines job status
-3. **Metadata Extractor**: Extracts provider, OCP version, workload type, Kata RPM version from job data
-4. **Failure Analyzer**: Identifies failure location, categorizes tests, detects patterns, and performs root cause analysis
-5. **Report Generator**: Formats analysis results into human-readable or machine-parsable output
+**User-Facing Scripts:**
+1. **analyze-claude.py**: Wrapper script that launches Claude Code with the `/prowjob-analyze` command
+   - Finds project root automatically
+   - Supports interactive (`-i`) and non-interactive modes
+   - Validates Prow URLs
+
+2. **analyze.py**: Level 1 analysis - overall job status and metadata
+   - Fetches prowjob.json, finished.json, test-results.yaml
+   - Determines which step(s) failed
+   - Lists failing tests (if tests ran)
+   - Generates comprehensive report with metadata and artifact links
+
+3. **failed_tests_report.py**: Level 2 analysis - detailed test debugging
+   - Extracts full test logs from build-log.txt
+   - Parses failure summaries
+   - Reports test metadata (ID, author, priority, elapsed time)
+   - Only runs when tests actually executed and failed
+
+**Library Modules:**
+1. **Fetcher**: URL parsing, artifact downloading with retry logic, step detection
+2. **Parser**: prowjob.json and test-results.yaml parsing, job status determination
+3. **Metadata Extractor**: Provider, OCP version, workload type, Kata RPM extraction
+4. **Failure Analyzer**: Failed step identification, test categorization
+5. **Report Generator**: Markdown and JSON report formatting
+
+### Claude Code Workflow
+
+When using `/prowjob-analyze` command, Claude follows this workflow:
+
+1. **Run analyze.py** - Get overall job status and identify failed steps
+2. **Examine Failure Analysis** - Check which step(s) failed
+3. **Decision Logic**:
+   - **Case A**: If `openshift-extended-test` failed AND tests are listed → Run `failed_tests_report.py` for detailed test logs
+   - **Case B**: If other step failed (e.g., `ipi-install-install`) → Tests never ran, explain infrastructure failure
+   - **Case C**: If multiple steps failed → Intelligent decision based on whether tests executed
+4. **Report Results** - Present analysis with artifact links and next steps
 
 ## Requirements
 
@@ -205,11 +309,14 @@ Output for rehearsal jobs includes the PR context:
 
 The analyzer is tailored for OSC jobs with special handling for:
 
-- **Workload Types**: Recognizes kata, peerpods, and confidential-containers workloads
+- **Workload Types**: Recognizes kata, peerpods, and confidential-containers (coco) workloads
 - **Kata RPM Version**: Extracts RPM version from job artifacts or identifies node-default usage
-- **Test Categorization**: Groups failing tests by OSC-relevant categories (deployment, networking, resources, peerpods, etc.)
-- **Common Patterns**: Detects OSC-specific failures like Kata initialization issues
-- **Version Mismatches**: Identifies EXPECTED_OPERATOR_VERSION configuration issues
+- **Catalog Information**: Extracts catalog source image, version, and build date
+- **Test Categorization**: Groups failing tests by OSC-relevant categories (operator lifecycle, workload deployment, peerpods-specific, coco-specific, etc.)
+- **Test Metadata Parsing**: Extracts test case IDs (C#####), authors, and priorities from test names
+- **Step-Level Detection**: Identifies which actual Prow step failed (e.g., `ipi-install-install`, `sandboxed-containers-operator-create-kataconfig`, `openshift-extended-test`)
+- **Special Step Handling**: Cross-checks test-results.yaml for openshift-extended-test step (which may report success in finished.json even when tests fail)
+- **OSC Test Context**: Understands OSC test execution flow, setup phases, and common failure patterns
 
 ## Troubleshooting
 
