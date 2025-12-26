@@ -18,9 +18,36 @@ The Prow Job Analyzer provides comprehensive analysis of Prow job runs, extracti
 
 ## Usage
 
+### Quick Start: Claude Launcher (Recommended)
+
+The easiest way to analyze a Prow job is using the Claude launcher script from anywhere:
+
+```bash
+# Non-interactive mode (default) - get results and exit
+./scripts/prowjob-analyzer/analyze-claude.py https://prow.ci.openshift.org/view/gs/test-platform-results/logs/periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate-aws-ipi-peerpods/1987995564184178688
+
+# Interactive mode - open Claude session for follow-up questions
+./scripts/prowjob-analyzer/analyze-claude.py -i <PROW_JOB_URL>
+
+# Or from within the prowjob-analyzer directory
+cd scripts/prowjob-analyzer
+./analyze-claude.py <PROW_JOB_URL>
+```
+
+The launcher script:
+- Automatically finds the project root directory
+- Launches Claude Code with the `/prowjob-analyze` command
+- No need to manually navigate or type the command
+- Runs in non-interactive mode by default (fast results)
+- Use `-i` for interactive mode to ask follow-up questions
+
+**Options:**
+- `--interactive, -i`: Launch Claude in interactive mode (default: non-interactive)
+- `--verbose, -v`: Show verbose output for debugging
+
 ### Via Claude Code Slash Command
 
-The easiest way to use the analyzer is through the Claude Code slash command:
+If you already have Claude Code open in the project directory:
 
 ```
 /prowjob-analyze https://prow.ci.openshift.org/view/gs/test-platform-results/logs/periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate-aws-ipi-peerpods/1987995564184178688
