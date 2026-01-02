@@ -33,20 +33,27 @@ https://osc.pages.redhat.com/documentation/
 
 ### Main Sections
 
-1. **Deploying** (`/deploying/`)
+1. **Deploying** (`/`)
    - `/deploying/ocp` - Installing OpenShift Container Platform
    - `/deploying/operators` - Operators needed for OSC
-   - `/deploying/testing-basic-workloads` - Testing basic workloads
-   - `/deploying/what-is-next` - Next steps after deployment
+   - `/deploying/testing` - Testing basic workloads
+   - `/deploying/whatsnext` - Next steps after deployment
 
 2. **Debugging** (`/debugging/`)
    - `/debugging/cloud` - Cloud-related debugging for Peerpods
 
 3. **Testing** (`/testing/`)
    - `/testing` - Main testing page (cluster options, test categories, CI infrastructure)
+   - `/testing/finding_pre-ga_versions` - How to find development builds of OSC
+     and trustee operators as well as the kata-containers RPM
+   - `testing/openshift-tests-private` - Running downstream OSC operator tests via prowjob
 
 4. **Releasing** (`/releasing/`)
    - `/releasing` - Release process and Konflux configuration
+   - `/releasing/kata-containers` - Kata-containers rpm build handling
+   - `/releasing/konflux-builds` - OSC operator builds from Konflux
+   - `/releasing/release-procedure-checklist` - Release procedure checklist
+   - `/releasing/update-kata-dependency` - Update a kata-container RPM dependency
 
 ### Versions
 The documentation has multiple versions available:
@@ -68,7 +75,7 @@ Analyze what the user is asking and determine which section(s) of the internal d
 - Testing/CI questions → `/testing` section
 - Debugging questions → `/debugging/cloud` section
 - Release questions → `/releasing` section
-- Setup/deployment questions → `/deploying/` section
+- Setup/deployment questions → `/` section
 
 ### 2. Fetch the Relevant Documentation
 
