@@ -10,7 +10,7 @@ The Prow Job Analyzer provides comprehensive analysis of Prow job runs, extracti
 
 ### Two-Level Analysis System
 
-**Level 1: Overall Job Analysis** (`analyze.py`):
+**Level 1: Overall Job Analysis** (`evaluate.py`):
 - **Metadata Extraction**: Automatically extracts provider, OCP version, workload type, Kata RPM version, and build information
 - **Status Determination**: Accurately determines if a job passed, failed, timed out, or encountered errors
 - **Failed Step Detection**: Identifies which actual Prow step(s) failed by checking each step's finished.json
@@ -79,16 +79,16 @@ You can also run the analyzer scripts directly:
 **Level 1: Overall Analysis**
 ```bash
 # Basic usage
-./analyze.py <PROW_JOB_URL>
+./evaluate.py <PROW_JOB_URL>
 
 # Generate JSON output
-./analyze.py --json <PROW_JOB_URL> > report.json
+./evaluate.py --json <PROW_JOB_URL> > report.json
 
 # Verbose mode with no wait for in-progress jobs
-./analyze.py --verbose --no-wait <PROW_JOB_URL>
+./evaluate.py --verbose --no-wait <PROW_JOB_URL>
 
 # Custom wait timeout (in seconds)
-./analyze.py --wait 600 <PROW_JOB_URL>
+./evaluate.py --wait 600 <PROW_JOB_URL>
 ```
 
 **Level 2: Detailed Test Analysis** (only when tests failed)
@@ -108,7 +108,7 @@ You can also run the analyzer scripts directly:
 
 ### Options
 
-**analyze.py:**
+**evaluate.py:**
 - `--json`: Output machine-readable JSON format instead of human-readable markdown
 - `--verbose, -v`: Enable verbose logging for debugging
 - `--wait SECONDS`: Set timeout for waiting for in-progress jobs (default: 300 seconds)
@@ -120,7 +120,7 @@ You can also run the analyzer scripts directly:
 
 ## Output
 
-### Level 1: Overall Job Analysis Report (analyze.py)
+### Level 1: Overall Job Analysis Report (evaluate.py)
 
 The default output is a comprehensive markdown report including:
 
@@ -146,7 +146,7 @@ Per-test detailed analysis including:
 
 Both scripts support `--json` flag for structured output suitable for automation:
 
-**analyze.py JSON:**
+**evaluate.py JSON:**
 ```json
 {
   "version": "1.0",
@@ -189,7 +189,7 @@ The analyzer is built with a modular architecture:
 ```
 prowjob-analyzer/
 ├── analyze-claude.py           # Claude launcher wrapper script
-├── analyze.py                  # Level 1: Overall job analysis
+├── evaluate.py                  # Level 1: Overall job analysis
 ├── failed_tests_report.py      # Level 2: Detailed test analysis
 └── lib/                        # Analysis modules
     ├── fetcher.py             # Artifact fetching and URL parsing
@@ -207,7 +207,7 @@ prowjob-analyzer/
    - Supports interactive (`-i`) and non-interactive modes
    - Validates Prow URLs
 
-2. **analyze.py**: Level 1 analysis - overall job status and metadata
+2. **evaluate.py**: Level 1 analysis - overall job status and metadata
    - Fetches prowjob.json, finished.json, test-results.yaml
    - Determines which step(s) failed
    - Lists failing tests (if tests ran)
@@ -230,7 +230,7 @@ prowjob-analyzer/
 
 When using `/prowjob-analyze` command, Claude follows this workflow:
 
-1. **Run analyze.py** - Get overall job status and identify failed steps
+1. **Run evaluate.py** - Get overall job status and identify failed steps
 2. **Examine Failure Analysis** - Check which step(s) failed
 3. **Decision Logic**:
    - **Case A**: If `openshift-extended-test` failed AND tests are listed → Run `failed_tests_report.py` for detailed test logs
@@ -264,7 +264,7 @@ sudo dnf install python3-pyyaml
 ### Passing Job
 
 ```bash
-./analyze.py https://prow.ci.openshift.org/view/gs/test-platform-results/logs/periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate-aws-ipi-peerpods/1998111460479209472
+./evaluate.py https://prow.ci.openshift.org/view/gs/test-platform-results/logs/periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate-aws-ipi-peerpods/1998111460479209472
 ```
 
 Output:
@@ -284,7 +284,7 @@ Output:
 ### Failed Periodic Job
 
 ```bash
-./analyze.py https://prow.ci.openshift.org/view/gs/test-platform-results/logs/periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate-azure-ipi-kata/1998111457991987200
+./evaluate.py https://prow.ci.openshift.org/view/gs/test-platform-results/logs/periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate-azure-ipi-kata/1998111457991987200
 ```
 
 Output will include failure analysis with categorized failing tests, detected patterns, and root cause analysis.
@@ -292,7 +292,7 @@ Output will include failure analysis with categorized failing tests, detected pa
 ### Presubmit/Rehearsal Job
 
 ```bash
-./analyze.py https://prow.ci.openshift.org/view/gs/test-platform-results/pr-logs/pull/openshift_release/72608/rehearse-72608-periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate417-azure-ipi-coco/2001012534630420480
+./evaluate.py https://prow.ci.openshift.org/view/gs/test-platform-results/pr-logs/pull/openshift_release/72608/rehearse-72608-periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate417-azure-ipi-coco/2001012534630420480
 ```
 
 Output for rehearsal jobs includes the PR context:
@@ -337,7 +337,7 @@ pip install pyyaml
 
 Use the `--wait` option to wait for job completion:
 ```bash
-./analyze.py --wait 600 <URL>  # Wait up to 10 minutes
+./evaluate.py --wait 600 <URL>  # Wait up to 10 minutes
 ```
 
 ## Development
@@ -346,13 +346,13 @@ Use the `--wait` option to wait for job completion:
 
 ```bash
 # Test with a known passing job
-./analyze.py <passing-job-url>
+./evaluate.py <passing-job-url>
 
 # Test with a known failing job
-./analyze.py <failing-job-url>
+./evaluate.py <failing-job-url>
 
 # Test JSON output
-./analyze.py --json <job-url> | jq .
+./evaluate.py --json <job-url> | jq .
 ```
 
 ### Adding New Failure Patterns

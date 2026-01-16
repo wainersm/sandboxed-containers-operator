@@ -2,7 +2,7 @@
 name: prowjob-analyze
 description: Analyze OpenShift Prow job results to determine status, extract metadata, and identify failures
 allowed-tools:
-  - Bash(python3 scripts/prowjob-analyzer/analyze.py:*)
+  - Bash(python3 scripts/prowjob-analyzer/evaluate.py:*)
   - Bash(python3 scripts/prowjob-analyzer/failed_tests_report.py:*)
 ---
 
@@ -16,7 +16,7 @@ Execute the following steps:
 
 **Step 1: Run main analyzer**
 ```bash
-python3 scripts/prowjob-analyzer/analyze.py --no-wait "$@"
+python3 scripts/prowjob-analyzer/evaluate.py --no-wait "$@"
 ```
 
 **Step 2: Analyze the output**
@@ -51,7 +51,7 @@ Use the exact test names from the "Failed Tests" section.
 
 Comprehensive Prow job analysis with two-level investigation:
 
-**Level 1: Overall Analysis** (analyze.py)
+**Level 1: Overall Analysis** (evaluate.py)
 - Extracts job metadata (provider, OCP version, Kata RPM, catalog, etc.)
 - Determines overall job status (pass/fail/timeout)
 - Identifies which step(s) failed
