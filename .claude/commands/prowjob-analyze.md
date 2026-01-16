@@ -41,9 +41,21 @@ Use the exact test names from the "Failed Tests" section.
 - Provide summary explaining that the job failed at infrastructure/setup stage
 - Point user to the specific step's artifacts for investigation
 
-**Case C: Multiple steps failed**
+**Case C: Pre-execution failure** (Failed Step is `pre-execution-failure`)
+- The job failed before ANY steps were executed
+- Common causes:
+  - Failed to acquire resource quotas (cloud provider capacity limits, quota exhaustion)
+  - Invalid job configuration (e.g., from Konflux trigger)
+  - Bad parameters, validation errors, missing required fields
+- Do NOT run failed_tests_report.py
+- Explain that this is a pre-execution failure (quota or configuration issue)
+- Direct user to check prowjob.json and finished.json for error details
+- For quota failures: Check cloud provider quotas and regional capacity
+- For config failures: Review the trigger source (e.g., Konflux build pipeline configuration)
+
+**Case D: Multiple steps failed**
 - If `openshift-extended-test` is among the failed steps AND has failing tests, run test analysis
-- Otherwise, treat as Case B
+- Otherwise, treat as Case B or C depending on the failure type
 
 ---
 
@@ -215,7 +227,14 @@ Tests use hardcoded defaults that can be overridden via `osc-config` ConfigMap:
 
 ### Common Failure Patterns
 
-**Infrastructure Failures** (tests don't run):
+**Pre-Execution Failures** (job fails before any steps execute):
+- Failed to acquire resource quotas (cloud provider capacity limits, quota exhaustion)
+- Invalid job configuration from Konflux trigger
+- Missing or invalid job parameters
+- Validation errors in job spec
+- Bad environment variable references
+
+**Infrastructure Failures** (tests don't run, but steps execute):
 - Cluster provisioning issues
 - Operator installation failures
 - KataConfig creation timeout (node reboot issues)

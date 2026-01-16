@@ -75,6 +75,7 @@ def identify_failure_location(
     - If test-results.yaml doesn't exist: tests didn't run, job failed before tests
     - If test-results.yaml exists with failures > 0: job failed at test execution
     - We rely on finished.json in each step's artifacts to determine which steps failed
+    - If no steps executed: job failed at configuration/pre-execution phase
 
     Args:
         prowjob_data: Parsed prowjob data
@@ -83,7 +84,7 @@ def identify_failure_location(
         variant: Job variant
 
     Returns:
-        Name of failed step(s), comma-separated if multiple, or status like 'timeout'/'unknown'
+        Name of failed step(s), comma-separated if multiple, or status like 'timeout'/'unknown'/'pre-execution-failure'
     """
     state = prowjob_data.get('state', '').lower()
 
@@ -104,12 +105,29 @@ def identify_failure_location(
             return ', '.join(failed_steps)
         else:
             # No failed steps detected from artifacts
-            # This can happen if we can't parse the artifacts properly
+            # This can happen in two scenarios:
+            # 1. Job failed before any steps were executed (bad config, validation error)
+            # 2. We can't parse the artifacts properly
             if state == 'failure':
-                logger.warning("Job failed but couldn't detect failed steps from artifacts")
-                return 'unknown'
+                # Check if any step directories exist at all
+                from .fetcher import get_step_directories
+                step_dirs = get_step_directories(base_url, variant)
+
+                if not step_dirs or len(step_dirs) == 0:
+                    # No steps executed - this is a pre-execution failure
+                    logger.info("Job failed before executing any steps (likely configuration error)")
+                    return 'pre-execution-failure'
+                else:
+                    # Steps exist but we couldn't determine which failed
+                    logger.warning("Job failed but couldn't detect failed steps from artifacts")
+                    return 'unknown'
 
     # If variant is unknown, we can't check step artifacts
+    # This could also be a pre-execution failure
+    if state == 'failure':
+        logger.warning("Job failed with unknown variant (possibly pre-execution failure)")
+        return 'pre-execution-failure'
+
     return 'unknown'
 
 

@@ -90,7 +90,9 @@ def generate_failure_analysis_section(failure_analysis: Dict, base_url: str, var
     section += f"**Failed Step(s)**: `{location}`\n\n"
 
     # Add context based on special statuses
-    if location == 'timeout':
+    if location == 'pre-execution-failure':
+        section += "⚠️ **Pre-Execution Failure**: The job failed before any steps were executed.\n\n"
+    elif location == 'timeout':
         section += "The job exceeded its execution timeout.\n\n"
     elif location == 'infrastructure':
         section += "The job failed due to infrastructure issues.\n\n"
