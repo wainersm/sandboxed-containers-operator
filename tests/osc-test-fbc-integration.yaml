@@ -163,7 +163,6 @@ spec:
         params:
           - name: PROWJOB_NAME
             value:
-              - periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate420-azure-ipi-kata
               - periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate420-aws-ipi-peerpods
     - name: prowjob-ocp419
       displayName: "Running prow job $(params.PROWJOB_NAME)"
@@ -200,8 +199,6 @@ spec:
         params:
           - name: PROWJOB_NAME
             value:
-              - periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate419-azure-ipi-kata
-              - periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate419-azure-ipi-peerpods
               - periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate419-aws-ipi-peerpods
     - name: prowjob-ocp420
       displayName: "Running prow job $(params.PROWJOB_NAME)"
@@ -272,8 +269,6 @@ spec:
         params:
           - name: PROWJOB_NAME
             value:
-              - periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate421-azure-ipi-kata
-              - periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate421-azure-ipi-peerpods
               - periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate421-aws-ipi-peerpods
     - name: prowjob-ocp422
       onError: continue
@@ -282,8 +277,6 @@ spec:
         - input: "$(tasks.determine-prowjobs.results.run_ocp422)"
           operator: in
           values: ["true"]
-      runAfter:
-        - prowjob-sanity
       taskRef:
         resolver: git
         params:
@@ -308,9 +301,6 @@ spec:
         params:
           - name: PROWJOB_NAME
             value:
-              - periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate422-azure-ipi-kata
-              - periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate422-azure-ipi-peerpods
-              - periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate422-aro-ipi-peerpods
               - periodic-ci-openshift-sandboxed-containers-operator-devel-downstream-candidate422-aws-ipi-peerpods
   finally:
     - name: aggregate-status
